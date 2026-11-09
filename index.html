@@ -1946,13 +1946,13 @@ const LEVELS = {
        map: LV(['L . . . P . .', '. . B . . . b', '. C O . O . .', '. . . S . T .', 'b . P . . . .', '. . . . B b .', 'K . . O . . P']) },
   5: { title: 'Pelotes bonus', light: 'soir', teach: true, budget: 10, keep: 3, rules: ['refill', 'stars'], tut: 'refill',
        map: LV(['L . . . P .', '. . b . . .', '. O . . O .', '. . . y . .', '. b O . . b', '. . . . O .', 'P y . . . .', 'K . O . . S']) },
-  // M = wooden pull-along duck : bump it to hook the yarn, rewind to drag it along
-  6: { title: 'Le canard têtu', light: 'matin', teach: true, budget: 13, keep: 3, rules: ['pull', 'stars'], tut: 'pull',
-       map: LV(['K . M . .', 'O O . O .', '. . . . .', '. O . O b', '. . S . .']) },
-  7: { title: 'Par le bon côté', light: 'aprem', budget: 14, keep: 3, rules: ['pull', 'stars'],
-       map: LV(['. . P . . O', '. M . P K .', '. C . . b .', 'b C . . . .', '. C P . . .', '. S O . B .']) },
-  8: { title: 'Deux canards', light: 'soir', budget: 16, keep: 3, rules: ['pull', 'stars'],
-       map: LV(['O B K P b .', '. . . . b .', '. . O . . .', '. B . O M B', '. O . . M .', 'C . S . . O']) },
+  // M = wooden duck on wheels : walk into it to push it one tile (never onto your yarn)
+  6: { title: 'Le canard têtu', light: 'matin', teach: true, budget: 13, keep: 3, rules: ['push', 'stars'], tut: 'push',
+       map: LV(['P O . . b', 'O O . O .', 'K . M . .', 'O O . O .', '. . . . S']) },
+  7: { title: 'Le couloir', light: 'aprem', budget: 16, keep: 3, rules: ['push', 'stars'],
+       map: LV(['. . b . O .', 'K . . P O .', '. . . O . .', 'O M O . . .', '. . . . O .', '. B . b . S']) },
+  8: { title: 'Deux canards', light: 'soir', budget: 16, keep: 3, rules: ['push', 'stars'],
+       map: LV(['. . K . . .', '. . O . O P', '. . M . O .', 'C O O M . .', 'B b . . . L', '. b . . S .']) },
 };
 const REFILL = 5;
 const FREE_CH = 'SKby.';
@@ -1995,7 +1995,7 @@ class Level extends Base {
     this.busy = false; this.queue = []; this.won = false; this.hintMarks = []; this.saidCross = false; this.tagFaded = false; this.yarnKey = null;
     this.tut = null; this.tutHand = null; this.sayTimer = null; this.drag = null; this.deadSaid = false; this.sleeper = null;
     this.locked = true; this.holdEv = null; this.holdUsed = false; this.fastBack = false; this.replayArmed = null; this.lastRem = null; this.idleT = 0; this.lookIn = 1.5; this.yawned = false; this.moodTimer = null; this.rolled = 0; this.lastSec = -1;
-    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.hooked = null;
+    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.pushes = {};
     for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
       const ch = this.grid[r][c];
       if (ch === 'S') this.start = [c, r]; if (ch === 'K') this.goal = [c, r];
@@ -2135,7 +2135,7 @@ class Level extends Base {
       rewind: 'Coincé ? Reviens sur tes pas : le fil s\'enroule. Garde le doigt sur Annuler pour reculer vite.',
       stars: `Étoiles : le panier, ${this.nb > 1 ? `les ${this.nb} boutons` : 'le bouton'}, et garder ${L.keep} laines.`,
       refill: `Les pelotes jaunes s'ajoutent à la tienne : +${REFILL} laines !`,
-      pull: 'Fonce dans le canard : ton fil s\'y accroche. Recule, il te suit. Avance pour le lâcher.',
+      push: 'Fonce dans le canard pour le pousser d\'une case. Il ne roule pas sur ton fil !',
     };
     this.card(S, 44, y - rh / 2 + 4, W - 88, rh - 8, 0xf7e6d1, 30);
     const s = rh / 160;
@@ -2164,12 +2164,11 @@ class Level extends Base {
       const xs = [92, 144, 196]; const icons = ['t_basket_back', 'btn_sewing_red', 'ball_red'];
       xs.forEach((x, i) => { S.add(this.img(x, y - 22 * s, icons[i]).setScale(i === 0 ? 0.32 * s : i === 1 ? 0.62 * s : 0.3 * s)); S.add(this.img(x, y + 30 * s, 'ic_star').setScale(0.34 * s)); });
     }
-    if (key === 'pull') {
-      const g = this.add.graphics(); S.add(g);
-      S.add(this.img(92, y + 18 * s, 't_duck').setOrigin(0.5, 0.7).setScale(0.62 * s).setFlipX(true));
-      yarnStroke(g, [{ x: 116, y: y + 6 * s }, { x: 140, y: y + 16 * s }, { x: 168, y: y + 8 * s }], 5);
-      const h = this.buildHead(true, 0.3 * s); h.setPosition(196, y - 2); S.add(h);
-      const a = this.add.graphics(); a.fillStyle(0xe0703a, 1); a.fillTriangle(178, y - 40 * s, 178, y - 26 * s, 166, y - 33 * s); a.fillRect(178, y - 35 * s, 22, 5); S.add(a);
+    if (key === 'push') {
+      const h = this.buildHead(true, 0.3 * s); h.setPosition(84, y); S.add(h);
+      const a = this.add.graphics(); a.fillStyle(0xe0703a, 1); a.fillTriangle(132, y - 9, 132, y + 9, 146, y); a.fillRect(116, y - 3, 17, 6); S.add(a);
+      S.add(this.img(196, y + 24 * s, 't_duck').setOrigin(0.5, 0.7).setScale(0.62 * s));
+      const m = this.add.graphics(); m.lineStyle(3, 0xe0703a, 0.6); [0, 1, 2].forEach(i => m.lineBetween(222 + i * 8, y - 8 + i * 4, 228 + i * 8, y - 8 + i * 4)); S.add(m);
     }
     if (key === 'refill') {
       S.add(this.img(110, y, 'ball_red').setScale(0.5 * s)); S.add(this.txt(150, y - 2, '+', 40, { fontStyle: '700', color: '#a4502a' }).setOrigin(0.5));
@@ -2180,7 +2179,7 @@ class Level extends Base {
   rules(first) {
     if (this.panel) return;
     if (this.transit) { this.time.delayedCall(300, () => this.rules(first)); return; }
-    const keys = first ? this.L.rules : ['move', 'cross', 'budget', 'rewind', ...(Object.keys(this.refills).length ? ['refill'] : []), ...(this.toys.length ? ['pull'] : []), 'stars'];
+    const keys = first ? this.L.rules : ['move', 'cross', 'budget', 'rewind', ...(Object.keys(this.refills).length ? ['refill'] : []), ...(this.toys.length ? ['push'] : []), 'stars'];
     const rh = keys.length > 4 ? 140 : 170;
     const hgt = Math.min(1300, 330 + keys.length * rh + (first ? 40 : 0));
     const build = (S, y0) => {
@@ -2306,11 +2305,14 @@ class Level extends Base {
     if (dx !== 0) this.cat.face(dx > 0 ? 1 : -1);
     this.cat.head.lookAt(Math.abs(dx), dy * 0.8);
     if (prev && prev[0] === c && prev[1] === r) return this.rewind();
-    const toy = this.toyAt(c, r); if (toy) { this.hook(toy, dx, dy); return; }
-    if (!this.free(c, r)) { this.bump(dx, dy, 'furniture'); return; }
-    if (this.inPath(c, r)) { this.bump(dx, dy, 'cross', [c, r]); return; }
-    if (this.remaining <= 0) { this.bump(dx, dy, 'empty'); return; }
-    if (this.hooked) this.unhook();
+    const toy = this.toyAt(c, r);
+    if (this.tut === 'near' && !toy) { this.dropHand(); this.tut = 'start'; }
+    if (toy) { if (!this.tryPush(toy, c, r, dx, dy)) return; }
+    else {
+      if (!this.free(c, r)) { this.bump(dx, dy, 'furniture'); return; }
+      if (this.inPath(c, r)) { this.bump(dx, dy, 'cross', [c, r]); return; }
+      if (this.remaining <= 0) { this.bump(dx, dy, 'empty'); return; }
+    }
     this.puff(); this.path.push([c, r]); this.remaining--; this.moveCat(hc, hr, c, r, true);
     if (this.goalTag && !this.tagFaded) { this.tagFaded = true; this.tweens.add({ targets: this.goalTag, alpha: 0, duration: 400 }); }
     Sound.pop(420 + (this.path.length - 1) * 9, 0.07, 'triangle', 0.07); buzz(6);
@@ -2322,42 +2324,45 @@ class Level extends Base {
     for (let i = 0; i < 3; i++) { const d = this.img(p.x + Phaser.Math.Between(-12, 12), p.y - 2, 'dot').setTint(0xc9a27a).setScale(0.4).setAlpha(0.7).setDepth(5); this.tweens.add({ targets: d, scale: 1.2, alpha: 0, y: d.y - 8, duration: 450, onComplete: () => d.destroy() }); }
   }
 
-  // ---------- pull-along toys
-  hook(toy, dx, dy) {
-    if (this.busy) return; this.busy = true;
-    const a = this.tf(...this.head()), k = this.G.k;
-    this.tweens.add({ targets: this.cat.root, x: a.x + dx * this.G.TS * 0.26, y: a.y + dy * this.G.TS * 0.26, duration: 90, yoyo: true, ease: 'Quad.easeOut', onComplete: () => { this.busy = false; this.pump(); } });
-    this.tweens.add({ targets: toy, x: toy.x + dx * 6 * k, y: toy.y + dy * 6 * k, duration: 90, yoyo: true, ease: 'Quad.easeOut' });
-    if (this.hooked === toy) { Sound.pop(500, 0.06, 'triangle', 0.05); return; }
-    this.hooked = toy; this.yarnKey = null;
-    toy.setFlipX(dx > 0); // the duck turns to face the kitten
-    Sound.pop(880, 0.1, 'triangle', 0.1); setTimeout(() => Sound.pop(1320, 0.08, 'triangle', 0.07), 70); buzz(12);
-    this.mood('play', 700); this.cat.head.twitch(0);
-    const p = this.toScreen({ x: toy.x, y: toy.y - 40 * k });
-    const t = this.txt(p.x, p.y, 'Accroché !', 30, { fontStyle: '700', color: '#c88a1a', stroke: '#fff6ea', strokeThickness: 7 }).setOrigin(0.5).setDepth(45).setScale(0.4);
-    this.tweens.add({ targets: t, scale: 1, y: t.y - 40, duration: 380, ease: 'Back.easeOut' }); this.tweens.add({ targets: t, alpha: 0, delay: 700, duration: 300, onComplete: () => t.destroy() });
-    if (this.L.tut === 'pull' && (this.tut === 'start' || this.tut === 'near')) this.tutorial('hooked');
+  // ---------- wooden ducks : pushed one tile ahead, never onto furniture, another duck, a special tile or the yarn
+  duckCan(c, r) { return c >= 0 && r >= 0 && c < this.G.cols && r < this.G.rows && '.M'.includes(this.grid[r][c]); }
+  tryPush(toy, c, r, dx, dy) {
+    if (this.remaining <= 0) { this.bump(dx, dy, 'empty'); return false; }
+    const ux = c + dx, uy = r + dy;
+    const why = (!this.duckCan(ux, uy) || this.toyAt(ux, uy)) ? 'block' : this.inPath(ux, uy) ? 'yarn' : null;
+    if (why) { this.bumpDuck(toy, dx, dy, why, [ux, uy]); return false; }
+    this.pushes[this.path.length] = { toy, from: [c, r] };
+    this.moveToy(toy, ux, uy, false);
+    if (dx !== 0) toy.setFlipX(dx < 0);
+    Sound.pop(1500, 0.04, 'square', 0.02); setTimeout(() => Sound.pop(1300, 0.04, 'square', 0.02), 80);
+    this.mood('play', 500);
+    if (this.L.tut === 'push' && this.tut && !this.deadSaid) this.tutorial('pushed');
+    return true;
   }
-  unhook(why) {
-    const toy = this.hooked; if (!toy) return; this.hooked = null; this.yarnKey = null; toy.angle = 0;
-    Sound.pop(400, 0.08, 'sine', 0.06);
-    if (why) this.say(why, 2400);
-  }
-  pullToy(toy, c, r) {
-    const p = this.tc(c, r), dur = this.fastBack ? 90 : 160;
-    if (c !== toy.c) toy.setFlipX(c < toy.c);
+  moveToy(toy, c, r, back) {
+    const p = this.tc(c, r), dur = back && this.fastBack ? 90 : 160, k = this.G.k;
     toy.c = c; toy.r = r;
-    const fwd = this.front(c, r) > toy.sortY; if (fwd) { toy.sortY = this.front(c, r); this.objs.sort('sortY'); }
+    if (this.front(c, r) > toy.sortY) { toy.sortY = this.front(c, r); this.objs.sort('sortY'); }
+    this.tweens.killTweensOf(toy);
     this.tweens.add({ targets: toy, x: p.x, y: p.y, duration: dur, ease: 'Sine.easeInOut', onComplete: () => { toy.sortY = this.front(c, r); this.objs.sort('sortY'); } });
-    Sound.pop(1500, 0.04, 'square', 0.02);
-    if (this.tut === 'hooked') this.tutorial('pulled');
+    if (!Save.reduce) this.tweens.add({ targets: toy, angle: { from: back ? 4 : -6, to: 0 }, duration: dur + 120, ease: 'Back.easeOut' });
+  }
+  bumpDuck(toy, dx, dy, why, tile) {
+    this.bump(dx, dy, 'duck');
+    const k = this.G.k, x = toy.x, y = toy.y;
+    this.tweens.add({ targets: toy, x: x + dx * 5 * k, y: y + dy * 5 * k, duration: 70, yoyo: true, ease: 'Quad.easeOut', onComplete: () => toy.setPosition(x, y) });
+    if (why === 'yarn') {
+      const p = this.tc(...tile); const f = this.add.graphics(); f.lineStyle(7, 0xd9483f, 0.9); f.lineBetween(-14, -14, 14, 14); f.lineBetween(14, -14, -14, 14); f.setPosition(p.x, p.y); this.world.add(f);
+      this.tweens.add({ targets: f, alpha: 0, scale: 1.5, duration: 600, onComplete: () => f.destroy() });
+    }
+    this.say(why === 'yarn' ? 'Le canard ne roule pas sur ton fil !' : 'Le canard est bloqué de ce côté.', 2400);
   }
   rewind() {
     if (this.path.length < 2) return;
     const [oc, or] = this.path.pop(); this.remaining++;
     const key = oc + ',' + or;
     if (this.refills[key] && this.refills[key].taken) this.unabsorb(key);
-    if (this.hooked) { if ('.M'.includes(this.grid[or][oc])) this.pullToy(this.hooked, oc, or); else this.unhook('Le canard ne roule pas sur cette case : il se décroche.'); }
+    const pu = this.pushes[this.path.length]; if (pu) { delete this.pushes[this.path.length]; this.moveToy(pu.toy, ...pu.from, true); }
     const [c, r] = this.head();
     this.mode = 'back'; this.moveCat(oc, or, c, r, false);
     Sound.pop(300, 0.07, 'sine', 0.07); buzz(4);
@@ -2369,7 +2374,7 @@ class Level extends Base {
   restart() {
     if (this.locked || this.won || this.busy || this.path.length < 2) return; this.queue = []; this.busy = true; this.clearHint();
     const s = this.tf(...this.start);
-    this.unhook();
+    this.pushes = {};
     this.toys.forEach(t => { const [c, r] = t.home; if (t.c === c && t.r === r) return; t.c = c; t.r = r; const p = this.tc(c, r); t.sortY = this.front(c, r); t.setFlipX(false); this.tweens.add({ targets: t, x: p.x, y: p.y, duration: 420, ease: 'Sine.easeInOut' }); });
     this.objs.sort('sortY');
     Object.entries(this.buttons).forEach(([k, b]) => { if (b.taken) this.uncollect(k, true); });
@@ -2412,7 +2417,7 @@ class Level extends Base {
     if (forward && c === this.goal[0] && r === this.goal[1]) { this.win(); return; }
     if (forward && this.remaining === 0) { this.mood('sad'); this.say('Plus de laine ! Reviens sur tes pas pour l\'enrouler.', 3000); this.pulseUndo(); return; }
     if (forward) this.checkDeadEnd();
-    if (this.L.tut === 'pull' && this.tut === 'start') { const t = DIRS.map(([dx, dy]) => this.toyAt(c + dx, r + dy)).find(Boolean); if (t) this.tutorial('near', t); }
+    if (this.L.tut === 'push' && this.tut === 'start' && !this.deadSaid) { const t = DIRS.map(([dx, dy]) => this.toyAt(c + dx, r + dy)).find(Boolean); const sol = t && this.solveToys(); if (sol && sol[0][0] === t.c && sol[0][1] === t.r) this.tutorial('near', t); }
     const near = DIRS.map(([dx, dy]) => [c + dx, r + dy, dx, dy]).find(([x, y]) => this.toyAt(x, y) || (this.buttons[x + ',' + y] && !this.buttons[x + ',' + y].taken) || (this.refills[x + ',' + y] && !this.refills[x + ',' + y].taken) || (this.mouseTile && x === this.mouseTile[0] && y === this.mouseTile[1]));
     if (near && !this.moodTimer) { this.cat.head.setMood('curious'); this.cat.head.lookAt(near[2] * this.cat.dir, near[3]); if (this.mouseTile && near[0] === this.mouseTile[0] && near[1] === this.mouseTile[1]) this.squeak(); }
     else if (!this.moodTimer && this.cat.head.S.mood === 'curious') this.cat.head.setMood('idle');
@@ -2436,6 +2441,12 @@ class Level extends Base {
     return { ok: g !== undefined, far: g !== undefined && g > this.remaining + bonus };
   }
   checkDeadEnd() {
+    if (this.toys.length) {
+      if (this.solveToys()) { this.deadSaid = false; return; }
+      if (this.deadSaid) return; this.deadSaid = true;
+      this.mood('annoyed', 900); this.emote('?');
+      this.say(Object.keys(this.pushes).length ? 'Impasse ! Annule pour remettre le canard en place.' : 'Impasse : par ici, le canard finirait coincé. Reviens en arrière.', 3400); this.pulseUndo(); return;
+    }
     const R = this.reach();
     if (R.ok && !R.far) { this.deadSaid = false; return; }
     if (this.deadSaid) return; this.deadSaid = true;
@@ -2501,13 +2512,12 @@ class Level extends Base {
       if (!this.saidCross) { this.saidCross = true; this.say('Le fil ne peut pas se croiser !', 2600); }
     }
     if (why === 'empty') { this.mood('sad'); this.tweens.add({ targets: this.counter, x: this.counter.x + 8, duration: 50, yoyo: true, repeat: 3 }); this.say('Plus de laine ! Reviens sur tes pas pour l\'enrouler.', 2600); this.pulseUndo(); }
-    if (why === 'furniture') this.mood('annoyed', 500);
+    if (why === 'furniture' || why === 'duck') this.mood('annoyed', 500);
   }
 
   // ---------- yarn on the floor : from the cushion, along the path, to the ball
   drawYarnPath() {
-    const hk = this.hooked;
-    const key = this.path.length + ':' + Math.round(this.catPos.x) + ',' + Math.round(this.catPos.y) + ':' + this.mode + ':' + Math.round(this.ball.x) + ',' + Math.round(this.ball.y) + (hk ? ':' + Math.round(hk.x) + ',' + Math.round(hk.y) + (hk.flipX ? 'f' : '') : '');
+    const key = this.path.length + ':' + Math.round(this.catPos.x) + ',' + Math.round(this.catPos.y) + ':' + this.mode + ':' + Math.round(this.ball.x) + ',' + Math.round(this.ball.y);
     if (key === this.yarnKey) return; this.yarnKey = key;
     const g = this.yarnG; g.clear();
     const pts = [this.anchor];
@@ -2517,13 +2527,6 @@ class Level extends Base {
     pts.push({ x: this.ball.x, y: this.ball.y + 8 * this.G.k });
     const sm = pts.length > 2 ? new Phaser.Curves.Spline(pts.map(p => new Phaser.Math.Vector2(p.x, p.y))).getPoints(pts.length * 5) : pts;
     yarnStroke(g, sm, Math.round(9 * Math.min(1.25, this.G.k)));
-    if (hk) {
-      const k = this.G.k, a = { x: this.ball.x, y: this.ball.y + 4 * k };
-      const b = { x: hk.x + (hk.flipX ? 41 : -41) * k * -1, y: hk.y - 13 * k };
-      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + 12 * k };
-      const pts = new Phaser.Curves.Spline([a, m, b].map(p => new Phaser.Math.Vector2(p.x, p.y))).getPoints(10);
-      yarnStroke(g, pts, Math.round(6 * Math.min(1.25, k)));
-    }
   }
 
   // ---------- HUD
@@ -2621,11 +2624,10 @@ class Level extends Base {
       if (step === 'moved') { this.dropHand(); this.say('Bien ! Le fil te suit. Passe par le bouton, puis va au panier.', 3600); this.tutDone(); }
     }
     if (kind === 'cross' && step === 'start') { this.say('Le fil ne peut pas se croiser : regarde bien avant de partir !', 3800); this.tutDone(); }
-    if (kind === 'pull') {
-      if (step === 'start') { this.say('Le canard bloque le chemin du panier. Va le voir !', 0); }
-      if (step === 'near') { const t = arguments[1]; this.say('Fonce dans le canard pour y accrocher ton fil.', 0); this.handTo(this.head(), [t.c, t.r]); this.tut = 'near'; }
-      if (step === 'hooked') { const prev = this.path[this.path.length - 2]; this.say('Accroché ! Maintenant recule : il te suit.', 0); this.pulseUndo(); if (prev) this.handTo(this.head(), prev); else this.dropHand(); }
-      if (step === 'pulled') { this.dropHand(); this.say('Il te suit tant que tu recules. Avance pour le lâcher !', 3600); this.tutDone(); }
+    if (kind === 'push') {
+      if (step === 'start') { this.say('Le canard bloque le chemin du panier. Pousse-le !', 0); }
+      if (step === 'near') { const t = arguments[1]; this.say('Fonce dans le canard pour le pousser d\'une case.', 0); this.handTo(this.head(), [t.c, t.r]); this.tut = 'near'; }
+      if (step === 'pushed') { this.dropHand(); this.say('Il roule ! Mais attention : jamais sur ton fil, ni contre un meuble.', 3600); this.tutDone(); }
     }
     if (kind === 'refill' && step === 'start') { this.say(`Seulement ${this.L.budget} laines… Les pelotes jaunes t'en redonnent !`, 0); this.tut = 'start'; }
     if (kind === 'refill' && step === 'absorbed') { this.say(`+${REFILL} laines ! Ta pelote grossit.`, 2600); this.tutDone(); }
@@ -2647,36 +2649,26 @@ class Level extends Base {
   // ---------- hint : best route from the current state (buttons first, then laine kept)
   solveToys() {
     const btn = new Set(Object.keys(this.buttons)), ys = new Set(Object.keys(this.refills).filter(k => !this.refills[k].taken));
-    const key2 = (p) => p[0] + ',' + p[1];
-    const startPath = this.path.map(key2), startToys = this.toys.map(t => t.c + ',' + t.r).sort();
-    const nodes = [{ path: startPath, toys: startToys, hk: this.hooked ? this.hooked.c + ',' + this.hooked.r : null, rem: this.remaining, par: -1, tile: null }];
-    const seen = new Set([startPath.join('|') + '#' + startToys.join('|') + '#' + nodes[0].hk]);
-    let best = null, bestScore = -1;
-    for (let i = 0; i < nodes.length && nodes.length < 120000; i++) {
-      const N = nodes[i]; const [hc, hr] = N.path[N.path.length - 1].split(',').map(Number); const prev = N.path[N.path.length - 2];
+    const onPath = new Set(this.path.map(([c, r]) => c + ',' + r)), toys = new Set(this.toys.map(t => t.c + ',' + t.r));
+    const got0 = [...onPath].filter(k => btn.has(k)).length;
+    let best = null, bestScore = -1, nodes = 0; const route = [];
+    const dfs = (c, r, rem, got) => {
+      if (++nodes > 250000) return;
       for (const [dx, dy] of DIRS) {
-        const c = hc + dx, r = hr + dy, k = c + ',' + r; let M = null;
-        if (k === prev) {
-          let toys = N.toys, hk = null; const ok = N.path[N.path.length - 1];
-          if (N.hk && '.M'.includes(this.grid[hr][hc])) { toys = N.toys.filter(t => t !== N.hk).concat([ok]).sort(); hk = ok; }
-          M = { path: N.path.slice(0, -1), toys, hk, rem: N.rem + 1 - (ys.has(ok) ? REFILL : 0) };
-        } else if (N.toys.includes(k)) { if (N.hk === k) continue; M = { path: N.path, toys: N.toys, hk: k, rem: N.rem }; }
-        else if (this.free(c, r, true) && !N.path.includes(k) && N.rem > 0) {
-          M = { path: N.path.concat([k]), toys: N.toys, hk: null, rem: N.rem - 1 + (ys.has(k) ? REFILL : 0) };
-          if (c === this.goal[0] && r === this.goal[1]) {
-            const got = M.path.filter(x => btn.has(x)).length; let depth = 0; for (let j = i; j > 0; j = nodes[j].par) depth++;
-            const score = got * 1000 + M.rem * 10 - depth * 0.01;
-            if (score > bestScore) { bestScore = score; best = { i, tile: [c, r] }; }
-            continue;
-          }
-        } else continue;
-        const sk = M.path.join('|') + '#' + M.toys.join('|') + '#' + M.hk; if (seen.has(sk)) continue; seen.add(sk);
-        M.par = i; M.tile = [c, r]; nodes.push(M);
+        const nc = c + dx, nr = r + dy, k = nc + ',' + nr;
+        if (rem <= 0 || onPath.has(k) || !this.free(nc, nr, true)) continue;
+        let moved = null;
+        if (toys.has(k)) { const ux = nc + dx, uy = nr + dy, uk = ux + ',' + uy; if (!this.duckCan(ux, uy) || toys.has(uk) || onPath.has(uk)) continue; toys.delete(k); toys.add(uk); moved = [k, uk]; }
+        onPath.add(k); route.push([nc, nr]);
+        const g = got + (btn.has(k) ? 1 : 0), rm = rem - 1 + (ys.has(k) ? REFILL : 0);
+        if (nc === this.goal[0] && nr === this.goal[1]) { const sc = g * 1000 + rm * 10 - route.length * 0.01; if (sc > bestScore) { bestScore = sc; best = route.slice(); } }
+        else dfs(nc, nr, rm, g);
+        route.pop(); onPath.delete(k);
+        if (moved) { toys.delete(moved[1]); toys.add(moved[0]); }
       }
-    }
-    if (!best) return null;
-    const route = [best.tile]; for (let j = best.i; j > 0; j = nodes[j].par) route.unshift(nodes[j].tile);
-    return route;
+    };
+    const [hc, hr] = this.head(); dfs(hc, hr, this.remaining, got0);
+    return best;
   }
   solveFrom() {
     if (this.toys.length) return this.solveToys();
@@ -2834,7 +2826,6 @@ class Level extends Base {
       Object.values(this.buttons).forEach((b, i) => { if (b && !b.taken) b.y = b.baseY + Math.sin(this.t * 2.4 + i) * 4; });
       Object.values(this.refills).forEach((y, i) => { if (y && !y.taken) { y.y = y.baseY + Math.sin(this.t * 2 + i * 1.7) * 5; y.angle = Math.sin(this.t * 1.3 + i) * 6; } });
     }
-    if (this.hooked && !Save.reduce) this.hooked.angle = Math.sin(this.t * 7) * 2.5;
     if (!this.locked && !this.won && !this.busy && !this.panel) {
       this.idleT += dt;
       if (this.idleT > 4) { this.lookIn -= dt; if (this.lookIn <= 0) { this.lookIn = 1.2 + Math.random() * 1.5; this.cat.head.lookAt(Math.random() * 2 - 1, Math.random() * 1.2 - 0.6); if (Math.random() < 0.3) this.cat.head.twitch(); } }
