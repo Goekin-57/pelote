@@ -160,6 +160,50 @@ const Sound = {
   },
   chime() { [660, 880, 1320].forEach((f, i) => setTimeout(() => this.pop(f, 0.25, 'triangle', 0.08), i * 70)); },
   fanfare() { [523, 659, 784, 1046, 784, 1046].forEach((f, i) => setTimeout(() => this.pop(f, i === 5 ? 0.5 : 0.16, 'triangle', 0.1), i * 110)); },
+  // ---- music : a gentle generative loop, one flavour per moment of the day (and one for home)
+  music: null,
+  playMusic(mode) {
+    if (!Save.music) { this.stopMusic(); return; }
+    if (this.music && this.music.mode === mode) return;
+    this.stopMusic();
+    const c = this.ensure(); if (!c) { this.pendingMusic = mode; return; }
+    const M = {
+      home:  { bpm: 72, scale: [0, 2, 4, 7, 9], base: 261.6, wave: 'triangle', vol: 0.05, pad: true,  density: 0.55, oct: 1 },
+      matin: { bpm: 96, scale: [0, 2, 4, 7, 9], base: 293.7, wave: 'triangle', vol: 0.05, pad: false, density: 0.7,  oct: 1 },
+      aprem: { bpm: 80, scale: [0, 2, 4, 5, 7, 9], base: 261.6, wave: 'sine', vol: 0.055, pad: true, density: 0.5, oct: 1 },
+      soir:  { bpm: 60, scale: [0, 3, 5, 7, 10], base: 220, wave: 'sine', vol: 0.045, pad: true, density: 0.4, oct: 2 },
+    }[mode] || {};
+    const master = c.createGain(); master.gain.value = 0; master.gain.setTargetAtTime(1, c.currentTime, 1.2);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = mode === 'soir' ? 1800 : 2600;
+    const delay = c.createDelay(1.0); delay.delayTime.value = 60 / M.bpm * 0.75; const fb = c.createGain(); fb.gain.value = 0.28; const wet = c.createGain(); wet.gain.value = 0.35;
+    lp.connect(master); lp.connect(delay); delay.connect(fb).connect(delay); delay.connect(wet).connect(master); master.connect(c.destination);
+    const st = { mode, master, nodes: [], step: 0, next: c.currentTime + 0.1, timer: null, seq: [] };
+    const beat = 60 / M.bpm / 2;
+    // an 16-step motif, re-rolled each bar so it never repeats exactly
+    const roll = () => { st.seq = []; let deg = 2; for (let i = 0; i < 16; i++) { deg = Math.max(0, Math.min(M.scale.length * 2 - 1, deg + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)])); st.seq.push(Math.random() < M.density || i % 4 === 0 ? deg : -1); } };
+    roll();
+    const note = (t, deg, dur, vol, wave, oct = 0) => {
+      const f = M.base * Math.pow(2, Math.floor(deg / M.scale.length) + oct) * Math.pow(2, M.scale[deg % M.scale.length] / 12);
+      const o = c.createOscillator(), g = c.createGain(); o.type = wave; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(lp); o.start(t); o.stop(t + dur + 0.05);
+    };
+    st.timer = setInterval(() => {
+      if (!this.music || this.music !== st) return;
+      while (st.next < c.currentTime + 0.4) {
+        const i = st.step % 16; if (i === 0 && st.step) roll();
+        const d = st.seq[i]; if (d >= 0) note(st.next, d, beat * 1.8, M.vol, M.wave, M.oct - 1);
+        if (M.pad && i % 8 === 0) { note(st.next, 0, beat * 8, M.vol * 0.5, 'sine', M.oct - 2); note(st.next, 2, beat * 8, M.vol * 0.35, 'sine', M.oct - 2); }
+        if (mode === 'soir' && i % 16 === 8) note(st.next, 4, beat * 6, M.vol * 0.4, 'triangle', M.oct);
+        st.next += beat; st.step++;
+      }
+    }, 120);
+    this.music = st;
+  },
+  stopMusic() {
+    const st = this.music; this.pendingMusic = null; if (!st) return; this.music = null;
+    clearInterval(st.timer); const c = this.ctx; if (c) { st.master.gain.setTargetAtTime(0, c.currentTime, 0.4); setTimeout(() => st.master.disconnect(), 1500); }
+  },
   purr(start) {
     const c = this.ensure(); if (!c) return;
     if (start && Save.sfx && !this.purrNode) {
@@ -179,7 +223,7 @@ const Sound = {
     }
   }
 };
-window.addEventListener('pointerdown', () => { Sound.unlocked = true; }, { capture: true });
+window.addEventListener('pointerdown', () => { Sound.unlocked = true; if (Sound.pendingMusic) { const m = Sound.pendingMusic; Sound.pendingMusic = null; setTimeout(() => Sound.playMusic(m), 50); } }, { capture: true });
 window.addEventListener('keydown', () => { Sound.unlocked = true; }, { capture: true });
 
 // ---------- canvas helpers ----------
@@ -419,14 +463,22 @@ class Boot extends Phaser.Scene {
       c.strokeStyle = 'rgba(180,140,100,0.5)'; c.lineWidth = 2; for (let x = 18; x < 136; x += 8) { c.beginPath(); c.moveTo(x, 80); c.lineTo(x, 98); c.stroke(); }
       c.fillStyle = '#e2524a'; c.beginPath(); c.arc(75, 16, 15, 0, Math.PI * 2); c.fill(); c.fillStyle = 'rgba(255,255,255,0.35)'; c.beginPath(); c.arc(70, 11, 5, 0, Math.PI * 2); c.fill();
     });
-    this.tex('btn_sewing_red', 52, 52, (c) => this.sewingButton(c, '#e2524a', '#a8302d'));
-    this.tex('btn_sewing_blue', 52, 52, (c) => this.sewingButton(c, '#4f96d8', '#2d5f99'));
-    this.tex('btn_sewing_yellow', 52, 52, (c) => this.sewingButton(c, '#f0b43c', '#b57d16'));
+    this.tex('btn_sewing_red', 52, 52, (c) => this.sewingButton(c, '#e2524a', '#a8302d', 'round'));
+    this.tex('btn_sewing_blue', 52, 52, (c) => this.sewingButton(c, '#4f96d8', '#2d5f99', 'flower'));
+    this.tex('btn_sewing_yellow', 52, 52, (c) => this.sewingButton(c, '#f0b43c', '#b57d16', 'heart'));
   }
-  sewingButton(c, col, dark) {
-    c.fillStyle = dark; c.beginPath(); c.arc(26, 28, 22, 0, Math.PI * 2); c.fill();
-    c.fillStyle = col; c.beginPath(); c.arc(26, 25, 22, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = 'rgba(255,255,255,0.45)'; c.lineWidth = 2.5; c.beginPath(); c.arc(26, 25, 16, 0, Math.PI * 2); c.stroke();
+  // three shapes so the buttons read without colour : round, flower, heart
+  buttonPath(c, x, y, r, shape) {
+    c.beginPath();
+    if (shape === 'flower') { for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.arc(x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, r * 0.5, 0, Math.PI * 2); } c.arc(x, y, r * 0.7, 0, Math.PI * 2); }
+    else if (shape === 'heart') { const t = y - r * 0.25; c.moveTo(x, y + r); c.bezierCurveTo(x - r * 1.3, y + r * 0.1, x - r * 1.05, t - r * 0.9, x, t - r * 0.2); c.bezierCurveTo(x + r * 1.05, t - r * 0.9, x + r * 1.3, y + r * 0.1, x, y + r); }
+    else c.arc(x, y, r, 0, Math.PI * 2);
+    c.closePath();
+  }
+  sewingButton(c, col, dark, shape) {
+    c.fillStyle = dark; this.buttonPath(c, 26, 28, 22, shape); c.fill();
+    c.fillStyle = col; this.buttonPath(c, 26, 25, 22, shape); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.45)'; c.lineWidth = 2.5; this.buttonPath(c, 26, 25, 15, shape); c.stroke();
     c.fillStyle = dark; [[20, 19], [32, 19], [20, 31], [32, 31]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 3.3, 0, Math.PI * 2); c.fill(); });
     c.strokeStyle = '#fff6ea'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(20, 19); c.lineTo(32, 31); c.moveTo(32, 19); c.lineTo(20, 31); c.stroke();
     c.fillStyle = 'rgba(255,255,255,0.55)'; c.beginPath(); c.ellipse(17, 13, 6, 3, -0.6, 0, Math.PI * 2); c.fill();
@@ -1046,7 +1098,7 @@ class Base extends Phaser.Scene {
     root.add([shadow, flip]);
     const P = B;
     const pal = { base: hex(P.base), dark: hex(P.dark), cream: hex(P.pattern === 'points' ? '#7a5848' : P.patches ? '#ffffff' : (P.darkFace ? '#4d4553' : P.cream)) };
-    const rig = { root, flip, body, head, tailG, legsB, legsF, pal, B, phase: 0, moving: 0, dir: 1, tail: { speed: 2.2, amp: 5 } };
+    const rig = { root, flip, body, head, tailG, legsB, legsF, shadow, pal, B, phase: 0, moving: 0, dir: 1, tail: { speed: 2.2, amp: 5 } };
     rig.face = (dir) => { rig.dir = dir; flip.scaleX = dir; };
     rig.draw = (t, dt) => {
       const mv = rig.moving, ph = rig.phase;
@@ -1251,6 +1303,7 @@ class Home extends Base {
 
   create() {
     this.t = 0; this.par = { x: 0, y: 0, tx: 0, ty: 0 };
+    Sound.playMusic('home'); this.sys.events.once('shutdown', () => {});
     this.catState = 'sleep'; this.panel = null; this.transit = false; this.grab = null; this.petting = false; this.hint = null; this.knitting = false; this.bubble = null; this.toastC = null;
     this.yarnDrawn = false; this.cat = null; this.avatarHead = null; this.avatar = null; this.previewBrain = null; this.touching = false; this.brain = null; this.sleepTimer = null; this.heartTimer = null;
 
@@ -1536,11 +1589,6 @@ class Home extends Base {
   }
 
   playLevel(n) {
-    if (PLAYABLE[n] && !Save.named) {
-      if (this.naming) return; this.naming = true;
-      askName('Comment s\'appelle ton chaton\u00a0?', 'Garder ' + catName(), (v) => { this.naming = false; if (v) Save.name = v; Save.named = true; persist(); this.renamed(); this.playLevel(n); });
-      return;
-    }
     if (PLAYABLE[n]) { Sound.purr(false); this.goScene('level', 'Le Salon', `Niveau ${n}`, { n }); }
     else this.curtainDown('Le Salon', `Niveau ${n}`, 'Ce niveau arrive bientôt dans la démo.\nLes niveaux 1 à 8 sont jouables !');
   }
@@ -1629,6 +1677,7 @@ class Home extends Base {
   }
 
   renamed() { if (this.catNav) this.catNav.list[2].setText(catName()); }
+  wakeMusic() { Sound.playMusic('home'); }
   // ====================================================== MON CHATON (personnalisation)
   openCat(tab = 0) {
     const build = (S, y0) => {
@@ -1750,8 +1799,8 @@ class Home extends Base {
 
   // ====================================================== RÉGLAGES
   openSettings() {
-    this.openPanel('Réglages', 1120, (S, y0) => {
-      const rows = [['music', 'Musique', 'Mélodies douces au piano'], ['sfx', 'Effets sonores', 'Pops, ronronnements, carillons'], ['vib', 'Vibrations', 'Petits retours au toucher'], ['reduce', 'Animations réduites', 'Moins de mouvement à l\'écran'], ['cb', 'Mode daltonien', 'Motifs sur les laines en plus des couleurs']];
+    this.openPanel('Réglages', 990, (S, y0) => {
+      const rows = [['music', 'Musique', 'Mélodies douces au piano'], ['sfx', 'Effets sonores', 'Pops, ronronnements, carillons'], ['vib', 'Vibrations', 'Petits retours au toucher'], ['reduce', 'Animations réduites', 'Moins de mouvement à l\'écran']];
       rows.forEach(([key, label, sub], i) => {
         const y = y0 + 30 + i * 132; const c = this.add.container(0, y); S.add(c); c.noTapScale = true;
         const g = this.add.graphics(); g.fillStyle(0xf7e6d1, 1); g.fillRoundedRect(44, -56, W - 88, 112, 28); c.add(g);
@@ -1762,7 +1811,7 @@ class Home extends Base {
         const draw = () => { const on = !!Save[key]; track.clear(); track.fillStyle(on ? 0x7fbf78 : 0xd9c3ad, 1); track.fillRoundedRect(-50, -24, 100, 48, 24); knob.clear(); knob.fillStyle(0xffffff, 1); knob.fillCircle(0, 0, 19); this.tweens.add({ targets: knob, x: on ? 26 : -26, duration: 160, ease: 'Quad.easeOut' }); };
         draw();
         const hit = this.add.zone(0, 0, 130, 80); sw.add(hit);
-        this.tapify(hit, () => { Save[key] = !Save[key]; persist(); draw(); if (key === 'sfx' && !Save.sfx) Sound.purr(false); if (key === 'reduce') this.dust.emitting = !Save.reduce; if (key === 'music') this.toast(Save.music ? 'Musique activée (pas encore de musique dans la démo)' : 'Musique coupée'); }, 0.96);
+        this.tapify(hit, () => { Save[key] = !Save[key]; persist(); draw(); if (key === 'sfx' && !Save.sfx) Sound.purr(false); if (key === 'reduce') this.dust.emitting = !Save.reduce; if (key === 'music') { if (Save.music) Sound.playMusic('home'); else Sound.stopMusic(); } }, 0.96);
       });
       const yb = y0 + 30 + rows.length * 132 + 20;
       S.add(this.txt(84, yb, 'Langue', 30, { fontStyle: '700' }).setOrigin(0, 0.5));
@@ -1850,8 +1899,13 @@ const LIGHTS = {
   aprem: { sky: ['#9fd0f0', '#cfe8f2', '#ffe2b8'], sun: [440, 620, 360, 580], sunCol: 'rgba(255,236,190,0.36)', tint: [0xffffff, 0], lamp: 0.75, hills: '#9ccf8f' },
   soir:  { sky: ['#4b4f8f', '#b37aa8', '#ffb38a'], sun: null, sunCol: null, tint: [0x3b3a78, 0.16], lamp: 1.25, hills: '#5f7d78' },
 };
-function paintTopDown(c, G, lightKey) {
-  const Lt = LIGHTS[lightKey] || LIGHTS.aprem;
+const DECORS = [
+  { rug: ['#f3dcc0', '#d9886a', '#f3dcc0', '#e8b45a', '#f3dcc0', '#9cc4b6', '#f3dcc0'], wall: 'stripes', win: 0.62, floor: ['#c98a5a', '#dba06c'], curtain: ['#e88a8a', '#f4a7a0', '#d97474'], shelfSide: 'left' },
+  { rug: ['#eadfd3', '#7fb7a6', '#eadfd3', '#4f8a7a', '#eadfd3', '#f0b43c', '#eadfd3'], wall: 'dots', win: 0.36, floor: ['#b97a4e', '#cf9262'], curtain: ['#7fb7a6', '#a6d6c6', '#5c9886'], shelfSide: 'right' },
+  { rug: ['#f6e3c8', '#c4612f', '#f6e3c8', '#4f96d8', '#f6e3c8', '#e2524a', '#f6e3c8'], wall: 'plain', win: 0.5, floor: ['#d6986a', '#e6ad7c'], curtain: ['#e0a040', '#f3c76a', '#c48d18'], shelfSide: 'left' },
+];
+function paintTopDown(c, G, lightKey, decorIdx = 0) {
+  const Lt = LIGHTS[lightKey] || LIGHTS.aprem, D = DECORS[decorIdx % DECORS.length];
   const { cols, rows, TS, BX: x0, BY: y0 } = G, w = TS * cols, h = TS * rows, wt = 20, wallH = 150;
   const wy = y0 - wallH, xr = x0 + w;
   // shadow under the board + front slab
@@ -1860,7 +1914,7 @@ function paintTopDown(c, G, lightKey) {
   c.fillStyle = lin(c, 0, y0 + h, 0, y0 + h + 36, [[0, '#9a5f37'], [1, '#7c4a28']]); c.fillRect(x0 - wt, y0 + h, w + wt * 2, 36);
   c.fillStyle = 'rgba(255,230,200,0.35)'; c.fillRect(x0 - wt, y0 + h, w + wt * 2, 3);
   // floor planks
-  c.fillStyle = lin(c, 0, y0, 0, y0 + h, [[0, '#c98a5a'], [1, '#dba06c']]); c.fillRect(x0, y0, w, h);
+  c.fillStyle = lin(c, 0, y0, 0, y0 + h, [[0, D.floor[0]], [1, D.floor[1]]]); c.fillRect(x0, y0, w, h);
   const ph = TS / 2;
   for (let y = y0, k = 0; y < y0 + h; y += ph, k++) {
     c.fillStyle = 'rgba(110,60,30,0.26)'; c.fillRect(x0, y, w, 2);
@@ -1871,7 +1925,7 @@ function paintTopDown(c, G, lightKey) {
   // round rug under the middle of the board (walkable)
   c.save(); c.globalAlpha = 0.7; c.translate(x0 + w / 2, y0 + h * 0.52); c.scale(1, 0.74);
   const R = Math.min(w, h) * 0.36;
-  [[1, '#f3dcc0'], [0.92, '#d9886a'], [0.79, '#f3dcc0'], [0.72, '#e8b45a'], [0.59, '#f3dcc0'], [0.52, '#9cc4b6'], [0.39, '#f3dcc0']].forEach(([k, col]) => { c.fillStyle = col; c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.fill(); });
+  [1, 0.92, 0.79, 0.72, 0.59, 0.52, 0.39].map((k, i) => [k, D.rug[i]]).forEach(([k, col]) => { c.fillStyle = col; c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.fill(); });
   c.strokeStyle = 'rgba(255,255,255,0.5)'; c.setLineDash([9, 10]); c.lineWidth = 3; [0.96, 0.76, 0.56].forEach(k => { c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.stroke(); }); c.setLineDash([]);
   c.restore();
   // tile grid
@@ -1880,7 +1934,7 @@ function paintTopDown(c, G, lightKey) {
   for (let k = 0; k <= cols; k++) { c.beginPath(); c.moveTo(x0 + k * TS, y0); c.lineTo(x0 + k * TS, y0 + h); c.stroke(); }
   for (let k = 0; k <= rows; k++) { c.beginPath(); c.moveTo(x0, y0 + k * TS); c.lineTo(x0 + w, y0 + k * TS); c.stroke(); }
   // sun patch from the window
-  const wx = Math.min(xr - 220, x0 + w * 0.5), wwid = Math.min(170, w * 0.36);
+  const wwid = Math.min(170, w * 0.36), wx = Math.max(x0 + 60, Math.min(xr - 60 - wwid, x0 + w * D.win - wwid / 2));
   if (Lt.sun) {
     c.fillStyle = lin(c, 0, y0, 0, y0 + h * 0.55, [[0, Lt.sunCol], [1, 'rgba(255,236,190,0)']]);
     c.beginPath(); c.moveTo(wx + 6, y0); c.lineTo(wx + wwid - 6, y0); c.lineTo(wx + wwid - 60, y0 + h * 0.55); c.lineTo(wx - 90, y0 + h * 0.55); c.closePath(); c.fill();
@@ -1891,7 +1945,9 @@ function paintTopDown(c, G, lightKey) {
   c.fillStyle = lin(c, xr, 0, xr - 30, 0, [[0, 'rgba(90,40,15,0.2)'], [1, 'rgba(90,40,15,0)']]); c.fillRect(xr - 30, y0, 30, h);
   // back wall
   c.fillStyle = lin(c, 0, wy, 0, y0, [[0, '#f7d4ad'], [1, '#f2c49c']]); c.fillRect(x0 - wt, wy, w + wt * 2, wallH);
-  for (let x = x0; x < xr; x += 36) { c.fillStyle = 'rgba(255,255,255,0.14)'; c.fillRect(x, wy, 12, wallH); }
+  if (D.wall === 'stripes') for (let x = x0; x < xr; x += 36) { c.fillStyle = 'rgba(255,255,255,0.14)'; c.fillRect(x, wy, 12, wallH); }
+  if (D.wall === 'dots') for (let x = x0 + 14; x < xr; x += 34) for (let yy = wy + 16; yy < y0 - 40; yy += 34) { c.fillStyle = 'rgba(214,120,80,0.16)'; c.beginPath(); c.arc(x + ((Math.round((yy - wy) / 34) % 2) * 17), yy, 4.5, 0, Math.PI * 2); c.fill(); }
+  if (D.wall === 'plain') { c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x0 - wt, wy + 50, w + wt * 2, 4); c.fillRect(x0 - wt, wy + 58, w + wt * 2, 2); }
   c.fillStyle = '#d89f78'; c.fillRect(x0 - wt, y0 - 30, w + wt * 2, 30); c.fillStyle = '#fff1df'; c.fillRect(x0 - wt, y0 - 36, w + wt * 2, 7);
   // window + curtains (sky follows the time of day)
   const wTop = wy + 18, wBot = y0 - 48;
@@ -1904,16 +1960,17 @@ function paintTopDown(c, G, lightKey) {
   c.restore();
   c.fillStyle = '#fff4e6'; c.fillRect(wx + wwid / 2 - 4, wTop, 8, wBot - wTop); c.fillRect(wx, (wTop + wBot) / 2 - 4, wwid, 8);
   c.fillStyle = '#fff8ef'; rr(c, wx - 18, wBot + 4, wwid + 36, 12, 4); c.fill();
-  [[wx - 32, 32], [wx + wwid, 32]].forEach(([x, cw]) => { c.fillStyle = lin(c, x, 0, x + cw, 0, [[0, '#e88a8a'], [0.5, '#f4a7a0'], [1, '#d97474']]); c.beginPath(); c.moveTo(x, wTop - 12); c.lineTo(x + cw, wTop - 12); c.lineTo(x + cw - 4, wBot + 14); c.lineTo(x + 4, wBot + 18); c.closePath(); c.fill(); });
+  [[wx - 32, 32], [wx + wwid, 32]].forEach(([x, cw]) => { c.fillStyle = lin(c, x, 0, x + cw, 0, [[0, D.curtain[0]], [0.5, D.curtain[1]], [1, D.curtain[2]]]); c.beginPath(); c.moveTo(x, wTop - 12); c.lineTo(x + cw, wTop - 12); c.lineTo(x + cw - 4, wBot + 14); c.lineTo(x + 4, wBot + 18); c.closePath(); c.fill(); });
   c.fillStyle = '#b5774a'; c.fillRect(wx - 42, wTop - 18, wwid + 84, 7);
   // shelf with books on the left, frame in between (only when there is room)
-  const sx = x0 + 14;
-  if (wx - sx > 150) {
+  const leftRoom = wx - x0 - 14, rightRoom = xr - 34 - 48 - (wx + wwid + 40);
+  const sx = (D.shelfSide === 'right' && rightRoom > 150) ? wx + wwid + 40 : x0 + 14;
+  if ((sx === x0 + 14 ? leftRoom : rightRoom) > 150) {
     c.fillStyle = '#a8693c'; c.fillRect(sx, wy + 90, 120, 8); c.fillStyle = '#c98a57'; c.fillRect(sx, wy + 86, 120, 5);
     let bx = sx + 8; ['#4f96d8', '#e2524a', '#f0b43c', '#7fbf78'].forEach((col, i) => { const bh = 38 + (i * 13) % 18; c.fillStyle = col; c.fillRect(bx, wy + 86 - bh, 15, bh); c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(bx + 3, wy + 86 - bh + 7, 9, 4); bx += 18; });
     c.fillStyle = '#fff6ea'; rr(c, sx + 86, wy + 60, 20, 26, 5); c.fill();
   }
-  if (wx - sx > 280) {
+  if (sx === x0 + 14 && leftRoom > 280) {
     const fx = sx + 150; c.fillStyle = '#b5774a'; rr(c, fx, wy + 26, 86, 70, 4); c.fill(); c.fillStyle = '#fff6e8'; c.fillRect(fx + 7, wy + 33, 72, 56);
     c.fillStyle = '#9cc7c0'; c.beginPath(); c.moveTo(fx + 7, wy + 89); c.lineTo(fx + 28, wy + 55); c.lineTo(fx + 44, wy + 73); c.lineTo(fx + 58, wy + 59); c.lineTo(fx + 79, wy + 89); c.closePath(); c.fill();
   }
@@ -1942,16 +1999,16 @@ const LEVELS = {
        map: LV(['. . . . K', '. B . O .', '. . S . .', '. O . B .', 'b . . . .']) },
   3: { title: 'Marche arrière', light: 'aprem', teach: true, budget: 18, keep: 3, rules: ['rewind', 'stars'], tut: 'rewind',
        map: LV(['. . . b .', '. O O O .', '. O K . .', '. O O O .', '. . . . .', 'O O S O O']) },
-  4: { title: 'Le grand salon', light: 'aprem', budget: 24, keep: 4, rules: ['move', 'cross', 'rewind', 'stars'],
+  4: { title: 'Le grand salon', decor: 1, light: 'aprem', budget: 24, keep: 4, rules: ['move', 'cross', 'rewind', 'stars'],
        map: LV(['L . . . P . .', '. . B . . . b', '. C O . O . .', '. . . S . T .', 'b . P . . . .', '. . . . B b .', 'K . . O . . P']) },
-  5: { title: 'Pelotes bonus', light: 'soir', teach: true, budget: 10, keep: 3, rules: ['refill', 'stars'], tut: 'refill',
+  5: { title: 'Pelotes bonus', decor: 1, light: 'soir', teach: true, budget: 10, keep: 3, rules: ['refill', 'stars'], tut: 'refill',
        map: LV(['L . . . P .', '. . b . . .', '. O . . O .', '. . . y . .', '. b O . . b', '. . . . O .', 'P y . . . .', 'K . O . . S']) },
   // M = wooden duck on wheels : walk into it to push it one tile (never onto your yarn)
-  6: { title: 'Le canard têtu', light: 'matin', teach: true, budget: 13, keep: 3, rules: ['push', 'stars'], tut: 'push',
+  6: { title: 'Le canard têtu', decor: 2, light: 'matin', teach: true, budget: 13, keep: 3, rules: ['push', 'stars'], tut: 'push',
        map: LV(['P O . . b', 'O O . O .', 'K . M . .', 'O O . O .', '. . . . S']) },
-  7: { title: 'Le couloir', light: 'aprem', budget: 16, keep: 3, rules: ['push', 'stars'],
+  7: { title: 'Le couloir', decor: 2, light: 'aprem', budget: 16, keep: 3, rules: ['push', 'stars'],
        map: LV(['. . b . O .', 'K . . P O .', '. . . O . .', 'O M O . . .', '. . . . O .', '. B . b . S']) },
-  8: { title: 'Deux canards', light: 'soir', budget: 16, keep: 3, rules: ['push', 'stars'],
+  8: { title: 'Deux canards', decor: 2, light: 'soir', budget: 16, keep: 3, rules: ['push', 'stars'],
        map: LV(['. . K . . .', '. . O . O P', '. . M . O .', 'C O O M . .', 'B b . . . L', '. b . . S .']) },
 };
 const REFILL = 5;
@@ -1981,7 +2038,7 @@ class Level extends Base {
     if (!this.textures.exists(key)) {
       const cv = document.createElement('canvas'); cv.width = W; cv.height = bot - top;
       const c = cv.getContext('2d'); c.translate(0, -top);
-      this.roomInfo = paintTopDown(c, G, this.L.light);
+      this.roomInfo = paintTopDown(c, G, this.L.light, this.L.decor || 0);
       this.textures.addCanvas(key, cv);
       this.registry.set('roomInfo_' + this.n, this.roomInfo);
     } else this.roomInfo = this.registry.get('roomInfo_' + this.n);
@@ -2005,6 +2062,7 @@ class Level extends Base {
     this.maxLaine = L.budget + Object.keys(this.refills).length * REFILL;
     this.path = [this.start]; this.remaining = L.budget; this.got = 0;
     const gameEl = document.getElementById('game'); if (gameEl) gameEl.dataset.light = L.light;
+    Sound.playMusic(L.light);
     this.events.once('shutdown', () => { if (gameEl) gameEl.dataset.light = ''; });
 
     this.WS = 1; this.world = this.add.container(0, 0);
@@ -2028,9 +2086,13 @@ class Level extends Base {
     this.cat.root.setScale(this.catS);
     const sp = this.tf(...this.start); this.cat.root.setPosition(sp.x, sp.y); this.cat.root.sortY = this.front(...this.start) + 0.5;
     this.cat.face(1); this.lastDir = [1, 0];
+    // light direction : morning sun from the window (left-ish), afternoon from the right, evening soft under the lamp
+    this.shadowOff = { matin: [-9, 6], aprem: [8, 5], soir: [0, 7] }[L.light] || [0, 6];
+    this.toys.forEach(t => { const sh = this.add.graphics(); sh.fillStyle(0x3a1a08, L.light === 'soir' ? 0.18 : 0.25); sh.fillEllipse(0, 0, 70 * k, 20 * k); sh.sortY = t.sortY - 0.5; this.objs.add(sh); t.shadowG = sh; });
     this.objs.add(this.cat.root);
     this.catPos = { x: sp.x, y: sp.y }; this.mode = 'idle';
     this.placeBall(true); this.objs.sort('sortY');
+    const opt = this.solveFrom(); this.optimum = opt ? opt.length : 0; this.hintsLeft = 3;
     // evening : a cool veil over the room, warm pools around lamps
     if (L.light === 'soir') {
       const veil = this.add.graphics(); veil.fillStyle(0x2e2f6e, 0.14); veil.fillRect(0, this.roomTop, W, G.rows * G.TS + 260); this.world.add(veil);
@@ -2565,7 +2627,7 @@ class Level extends Base {
     const stopHold = () => { if (this.holdEv) { this.holdEv.remove(); this.holdEv = null; } this.fastBack = false; };
     uh.on('pointerdown', () => { stopHold(); this.holdUsed = false; this.holdEv = this.time.delayedCall(380, () => { this.holdEv = this.time.addEvent({ delay: 110, loop: true, callback: () => { if (this.path.length < 2) { stopHold(); return; } this.holdUsed = true; this.fastBack = true; this.undo(); } }); }); });
     uh.on('pointerup', stopHold); uh.on('pointerout', stopHold);
-    bot.add(this.pillBtn(W / 2, 1500, 190, 92, 'Indice', 0xf0b43c, () => this.showHintPath(), { size: 24, icon: 'ic_bulb', ink: '#5a3410' }));
+    this.hintBtn = this.pillBtn(W / 2, 1500, 190, 92, 'Indice ·3', 0xf0b43c, () => this.showHintPath(), { size: 24, icon: 'ic_bulb', ink: '#5a3410' }); bot.add(this.hintBtn);
     this.replayBtn = this.pillBtn(W / 2 + 230, 1500, 190, 92, 'Rejouer', 0xc9a98c, () => this.askRestart(), { size: 24, icon: 'ic_restart' });
     bot.add(this.replayBtn);
     this.sayY = Math.min(1350, this.G.BY + this.G.rows * this.G.TS + 104);
@@ -2697,6 +2759,8 @@ class Level extends Base {
   }
   showHintPath() {
     if (this.won || this.locked) return; this.clearHint();
+    if (this.hintsLeft <= 0) { this.say('Plus d\'indices pour ce niveau. Tu peux y arriver !', 2400); this.tweens.add({ targets: this.hintBtn, x: this.hintBtn.x + 6, duration: 50, yoyo: true, repeat: 3 }); return; }
+    this.hintsLeft--; this.hintBtn.label.setText(this.hintsLeft ? `Indice ·${this.hintsLeft}` : 'Indice'); if (!this.hintsLeft) this.hintBtn.setAlpha(0.55);
     const route = this.solveFrom();
     if (!route) { this.say('Ce chemin est bloqué : reviens en arrière pour enrouler le fil.', 3200); this.pulseUndo(); return; }
     const k = this.G.k;
@@ -2728,7 +2792,12 @@ class Level extends Base {
     this.tweens.add({ targets: this.ball, x: p.x + 50 * k * (p.x > W / 2 ? -1 : 1), y: p.y + 36 * k, rotation: this.ball.rotation + 4, duration: 500, ease: 'Quad.easeOut' });
     const sp = this.toScreen(p);
     for (let i = 0; i < 18; i++) { const s = this.img(sp.x, sp.y - 60, i % 3 ? 'spark' : 'heart').setScale(0.3).setDepth(60); this.tweens.add({ targets: s, x: s.x + Phaser.Math.Between(-160, 160), y: s.y + Phaser.Math.Between(-220, 40), alpha: 0, scale: 0.8, angle: Phaser.Math.Between(-180, 180), duration: 1100, ease: 'Quad.easeOut', onComplete: () => s.destroy() }); }
-    this.time.delayedCall(900, () => this.winBar(stars, gain, [true, allB, kept]));
+    const cases = this.path.length - 1; const bests = Save.best || (Save.best = {}); const prevBest = bests[this.n];
+    this.newRecord = !prevBest || cases < prevBest; if (this.newRecord) bests[this.n] = cases; persist();
+    this.time.delayedCall(900, () => {
+      if (this.n === 1 && !Save.named) askName(`Bravo ! Comment s'appelle ton chaton\u00a0?`, 'Garder ' + catName(), (v) => { if (v) Save.name = v; Save.named = true; persist(); if (this.won && this.n === 1) this.winBar(stars, gain, [true, allB, kept]); });
+      else this.winBar(stars, gain, [true, allB, kept]);
+    });
   }
   curlUp(p) {
     const k = this.G.k;
@@ -2767,9 +2836,13 @@ class Level extends Base {
       c.add(this.img(x, sy, 'ic_star_off').setScale(0.6));
       if (i < stars) { const st = this.img(x, sy, 'ic_star').setScale(0); c.add(st); this.tweens.add({ targets: st, scale: 0.6, duration: 360, delay: 700 + i * 220, ease: 'Back.easeOut' }); }
     }
-    c.add(this.txt(-80, -22, stars === 3 ? 'Parfait !' : 'Bravo !', 34, { fontStyle: '700' }).setOrigin(0, 0.5));
-    if (gain > 0) { c.add(this.img(-66, 20, 'ball_mustard').setScale(0.24)); c.add(this.txt(-48, 20, `+${gain} laine`, 24, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0, 0.5)); }
-    else c.add(this.txt(-80, 20, 'Déjà gagné', 24, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0, 0.5));
+    c.add(this.txt(-80, -24, stars === 3 ? 'Parfait !' : 'Bravo !', 32, { fontStyle: '700' }).setOrigin(0, 0.5));
+    const cases = this.path.length - 1, opt = this.optimum;
+    const l1 = gain > 0 ? `+${gain} laine` : 'Déjà gagné';
+    const l2 = `${cases} cases` + (opt ? (cases <= opt ? ' · le minimum !' : ` · minimum ${opt}`) : '') + (this.newRecord && gain <= 0 ? ' · record' : '');
+    if (gain > 0) c.add(this.img(-66, 8, 'ball_mustard').setScale(0.22));
+    c.add(this.txt(gain > 0 ? -50 : -80, 8, l1, 21, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0, 0.5));
+    c.add(this.txt(-80, 32, l2, 19, { fontStyle: '500', color: cases <= opt ? '#4f8a7a' : '#9a5a36' }).setOrigin(0, 0.5));
     c.add(this.txt(292, 0, 'Détails ›', 23, { fontStyle: '600', color: '#c06a3c' }).setOrigin(1, 0.5));
     const hz = this.add.zone(0, 0, 640, 116); c.add(hz); this.tapify(hz, () => { if (!this.panel) this.winPanel(stars, gain); });
     this.tweens.add({ targets: c, y, alpha: 1, duration: 380, delay: 300, ease: 'Back.easeOut' });
@@ -2796,8 +2869,9 @@ class Level extends Base {
       const bl = this.nb > 1 ? `${this.nb} boutons enfilés` : 'Bouton enfilé';
       const lines = [['Arrivé au panier', true], [bl, this.got === this.nb], [`Garder ${this.L.keep} laines (il t'en reste ${this.remaining})`, this.remaining >= this.L.keep]];
       lines.forEach(([l, ok], i) => { const y = y0 + 360 + i * 64; S.add(this.img(110, y, ok ? 'ic_check' : 'ic_star_off').setScale(ok ? 0.5 : 0.36)); S.add(this.txt(150, y, l, 27, { fontStyle: ok ? '600' : '500', color: ok ? INK : '#a68a72' }).setOrigin(0, 0.5)); });
-      if (gain > 0) { S.add(this.img(W / 2 - 70, y0 + 570, 'ball_mustard').setScale(0.42)); S.add(this.txt(W / 2 - 36, y0 + 570, `+${gain} laine`, 34, { fontStyle: '700' }).setOrigin(0, 0.5)); }
-      if (stars < 3) S.add(this.txt(W / 2, y0 + 630, this.got < this.nb ? 'Astuce : prends les boutons dans le bon ordre.' : 'Astuce : un chemin plus court garde plus de laine.', 23, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
+      if (gain > 0) { S.add(this.img(W / 2 - 70, y0 + 548, 'ball_mustard').setScale(0.42)); S.add(this.txt(W / 2 - 36, y0 + 548, `+${gain} laine`, 34, { fontStyle: '700' }).setOrigin(0, 0.5)); }
+      const bests = Save.best || {}; S.add(this.txt(W / 2, y0 + 600, `Chemin : ${this.path.length - 1} cases · ton record : ${bests[this.n] || this.path.length - 1}` + (this.optimum ? ` · minimum : ${this.optimum}` : ''), 23, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5));
+      if (stars < 3) S.add(this.txt(W / 2, y0 + 640, this.got < this.nb ? 'Astuce : prends les boutons dans le bon ordre.' : 'Astuce : un chemin plus court garde plus de laine.', 23, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
       const home = () => { this.registry.set('fromLevel', true); this.registry.set('afterLevelToast', gain ? `+${gain} laine gagnée !` : null); this.goScene('home', 'Pelote', 'Retour à la maison'); };
       S.add(this.pillBtn(W / 2 - 236, H - 130, 150, 96, '', 0xc9a98c, () => { this.panel = null; this.scene.restart({ n: this.n, quick: true }); }, { size: 30, icon: 'ic_restart' }));
       S.add(this.pillBtn(W / 2 - 70, H - 130, 150, 96, '', 0xc9a98c, home, { size: 30, icon: 'ic_house' }));
@@ -2809,7 +2883,13 @@ class Level extends Base {
 
   update(time, delta) {
     const dt = Math.min(delta, 50) / 1000; this.t += dt;
-    if (this.cat.root.visible) this.cat.draw(this.t, dt);
+    if (this.cat.root.visible) {
+      this.cat.draw(this.t, dt);
+      // the shadow stays on the floor while the kitten hops, and shifts with the light
+      const lift = (this.catPos.y - this.cat.root.y) / this.catS, sh = this.cat.shadow;
+      sh.setPosition(this.shadowOff[0] * (this.cat.dir || 1) * (this.cat.flip.scaleX < 0 ? -1 : 1), lift + 2 + this.shadowOff[1]); sh.setScale(Math.max(0.6, 1 - lift * 0.01), 1); sh.setAlpha(Math.max(0.4, 1 - lift * 0.012));
+    }
+    this.toys.forEach(t => { if (t.shadowG) { t.shadowG.setPosition(t.x + this.shadowOff[0] * this.G.k, t.y + (10 + this.shadowOff[1]) * this.G.k); } });
     if (this.sleeper && this.sleeper.root.scene) { this.sleeper.drawTail(this.t); this.sleeper.head.update(dt); }
     this.sayHead.update(dt);
     this.drawYarnPath();
