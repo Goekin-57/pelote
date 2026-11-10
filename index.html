@@ -84,10 +84,10 @@ const FURS = {
              ear: 'tufted', earX: 32, earY: -44, earRot: 0.3, eye: 'round', eyeDX: 23, eyeY: -4, face: 'ruff', defEyes: 'vert', tailW: 20, tailRings: true, tailFluff: true, pattern: 'tabby', fluffy: true },
   siamois: { label: 'Siamois', perso: 'bavard', persoLabel: 'Bavard', desc: 'A toujours quelque chose à raconter.',
              base: '#f2e2cb', light: '#fff6e8', dark: '#d8c09e', stripe: null, cream: '#fffaf0', earCol: '#6b4a3a', inner: '#a8857a', tip: '#5a3c2e', nose: '#5a3c2e', line: '#5a3a2e', whisk: 0xffffff, mask: '#6b4a3a', lidCol: '#b49478',
-             ear: 'big', earX: 36, earY: -38, earRot: 0.55, eye: 'almond', eyeDX: 22, eyeY: -4, face: 'tri', defEyes: 'bleu', tailW: 10, pattern: 'points', lock: 'Termine le Salon' },
+             ear: 'big', earX: 36, earY: -38, earRot: 0.55, eye: 'almond', eyeDX: 22, eyeY: -4, face: 'tri', defEyes: 'bleu', tailW: 10, pattern: 'points', lock: 'Termine les 8 niveaux du Salon' },
   fold:    { label: 'Scottish fold', perso: 'doux', persoLabel: 'Tout doux', desc: 'Fait des clignements d\'amour tout lents.',
              base: '#fbf3e6', light: '#ffffff', dark: '#e3d6c3', stripe: null, cream: '#ffffff', earCol: '#e89448', inner: '#f2b9a4', tip: '#3d3742', nose: '#f29aa6', line: '#9a6a4a', whisk: 0xcbb9a6, lidCol: '#f3e5cf',
-             ear: 'fold', earX: 32, earY: -38, earRot: 0.34, eye: 'big', eyeDX: 23, eyeY: -2, face: 'round', defEyes: 'ambre', tailW: 15, pattern: 'calico', patches: true, lock: '7 puzzles du jour d\'affilée' },
+             ear: 'fold', earX: 32, earY: -38, earRot: 0.34, eye: 'big', eyeDX: 23, eyeY: -2, face: 'round', defEyes: 'ambre', tailW: 15, pattern: 'calico', patches: true, lock: 'Réussis 3 puzzles du jour' },
 };
 const EYES = { ambre: ['Ambre', '#e8a33c', 'ambre'], vert: ['Vert', '#8cc77a', 'verts'], bleu: ['Bleu', '#7cb6e8', 'bleus'], noisette: ['Noisette', '#a8794a', 'noisette'], cuivre: ['Cuivre', '#e2772c', 'cuivre'] };
 const WORDS = {
@@ -106,11 +106,11 @@ const ITEMS = [
   { id: 'plaid', name: 'Plaid moutarde', cost: 60, desc: 'Plié dans un coin.' },
   { id: 'pouf', name: 'Pouf tricoté', cost: 80, desc: 'Le coin lecture parfait.' },
 ];
-const ROOMS = [['Salon', 0], ['Cuisine', 30], ['Grenier', 70], ['Jardin', 110], ['Atelier', 150], ['Mercerie', 200]];
-const NLEVELS = 18;
+const ROOMS = ['Salon', 'Cuisine', 'Grenier', 'Jardin', 'Atelier', 'Mercerie'];
+const NLEVELS = 8;
 
 // ---------- save (local, per browser) ----------
-const DEFAULT = { laine: 128, fur: 'roux', eyes: 'ambre', acc: null, accOwned: {}, items: {}, levels: {}, pets: 0, yarn: 0, sfx: true, music: true, vib: true, reduce: false, cb: false, hintSeen: false, tutDone: false, tuts: {}, seenRules: {}, name: '', named: false };
+const DEFAULT = { laine: 128, fur: 'roux', eyes: 'ambre', acc: null, accOwned: {}, items: {}, levels: {}, pets: 0, yarn: 0, sfx: true, music: true, vib: true, reduce: false, cb: false, hintSeen: false, tutDone: false, tuts: {}, seenRules: {}, name: '', named: false, daily: {}, best: {}, seenUnlock: {} };
 const Save = JSON.parse(JSON.stringify(DEFAULT));
 try { Object.assign(Save, JSON.parse(localStorage.getItem('pelote-demo-v2') || '{}')); } catch (e) {}
 if (!FURS[Save.fur]) Save.fur = ({ creme: 'maine', calico: 'fold' })[Save.fur] || 'roux';
@@ -138,8 +138,65 @@ function askName(title, cancelLabel, done) {
 }
 const buzz = (ms = 10) => { if (Save.vib) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} } };
 const totalStars = () => Object.values(Save.levels).reduce((a, b) => a + b, 0);
+const salonDone = () => { for (let n = 1; n <= NLEVELS; n++) if (!Save.levels[n]) return false; return true; };
+const dailyCount = () => Object.keys(Save.daily || {}).length;
+const dailyStreak = () => { const D = Save.daily || {}; const d = new Date(); if (!D[dayKey(d)]) d.setDate(d.getDate() - 1); let n = 0; while (D[dayKey(d)]) { n++; d.setDate(d.getDate() - 1); } return n; };
+const lockedFur = (id) => id === 'siamois' ? !salonDone() : id === 'fold' ? dailyCount() < 3 : false;
+const dateLabel = (d = new Date()) => { const t = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); return t.charAt(0).toUpperCase() + t.slice(1); };
 const currentLevel = () => { for (let n = 1; n <= NLEVELS; n++) if (!Save.levels[n]) return n; return NLEVELS; };
 const PLAYABLE = { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true };
+
+// ---------- puzzle du jour : a board generated from the date, kept only if the solver proves it fair
+const dayKey = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+function solveGrid(grid, budget, cap = 250000) {
+  const R = grid.length, C = grid[0].length; let S, K; const btn = new Set(), ys = new Set(), toys = new Set();
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) { const ch = grid[r][c], k = c + ',' + r; if (ch === 'S') S = [c, r]; if (ch === 'K') K = [c, r]; if (ch === 'b') btn.add(k); if (ch === 'y') ys.add(k); if (ch === 'M') toys.add(k); }
+  const walk = (c, r) => c >= 0 && r >= 0 && c < C && r < R && 'SKby.M'.includes(grid[r][c]);
+  const duckOk = (c, r) => c >= 0 && r >= 0 && c < C && r < R && '.M'.includes(grid[r][c]);
+  const on = new Set([S[0] + ',' + S[1]]); let best = null, bestScore = -1, nodes = 0, three = 0; const route = [];
+  const dfs = (c, r, rem, got) => {
+    if (++nodes > cap) return;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dx, nr = r + dy, k = nc + ',' + nr;
+      if (rem <= 0 || on.has(k) || !walk(nc, nr)) continue;
+      let mv = null;
+      if (toys.has(k)) { const ux = nc + dx, uy = nr + dy, uk = ux + ',' + uy; if (!duckOk(ux, uy) || toys.has(uk) || on.has(uk)) continue; toys.delete(k); toys.add(uk); mv = [k, uk]; }
+      on.add(k); route.push([nc, nr]);
+      const g = got + (btn.has(k) ? 1 : 0), rm = rem - 1 + (ys.has(k) ? 5 : 0);
+      if (nc === K[0] && nr === K[1]) { const sc = g * 1000 + rm * 10 - route.length * 0.01; if (g === btn.size && rm >= 3) three++; if (sc > bestScore) { bestScore = sc; best = { route: route.slice(), got: g, rem: rm }; } }
+      else dfs(nc, nr, rm, g);
+      route.pop(); on.delete(k); if (mv) { toys.delete(mv[1]); toys.add(mv[0]); }
+    }
+  };
+  dfs(S[0], S[1], budget, 0);
+  return { best, complete: nodes <= cap, nb: btn.size, three, nodes };
+}
+function makeDaily(key) {
+  let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const day = new Date(key + 'T12:00:00').getDay(), weekend = day === 0 || day === 6;
+  const light = pick(['matin', 'aprem', 'soir']), decor = Math.floor(rnd() * 3);
+  for (let tries = 0; tries < 400; tries++) {
+    const C = pick([5, 6, 6]), R = 6, g = Array.from({ length: R }, () => Array(C).fill('.'));
+    const cells = []; for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) cells.push([c, r]);
+    const sc = Math.floor(rnd() * C); g[R - 1][sc] = 'S';
+    const kc = pick(cells.filter(([c, r]) => r <= 1)); g[kc[1]][kc[0]] = 'K';
+    const free = cells.filter(([c, r]) => g[r][c] === '.'); for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+    const nw = Math.round(C * R * (0.28 + rnd() * 0.08)); let i = 0;
+    for (; i < nw; i++) g[free[i][1]][free[i][0]] = pick(['O', 'O', 'O', 'P', 'B', 'B', 'C', 'L']);
+    const nb = weekend ? 3 : 2; for (let j = 0; j < nb; j++, i++) g[free[i][1]][free[i][0]] = 'b';
+    const duck = rnd() < (weekend ? 0.6 : 0.3); if (duck) { g[free[i][1]][free[i][0]] = 'M'; i++; }
+    const lamps = cells.filter(([c, r]) => g[r][c] === 'L'); lamps.slice(1).forEach(([c, r]) => { g[r][c] = 'O'; });
+    const A = solveGrid(g, 22, 120000);
+    if (!A.complete || !A.best || A.best.got < nb) continue;
+    const len = A.best.route.length; if (len < 11 || len > 19) continue;
+    const B = solveGrid(g, len + 3, 120000); if (!B.complete || B.three > 8) continue;
+    if (duck) { const g2 = g.map(row => row.map(ch => ch === 'M' ? 'O' : ch)); const D = solveGrid(g2, len + 3, 120000); if (D.best && D.best.got === nb && D.best.rem >= A.best.rem - (22 - len - 3)) continue; }
+    return { title: 'Puzzle du jour', light, decor, budget: len + 3, keep: 3, rules: [], map: g, daily: key };
+  }
+  return { title: 'Puzzle du jour', light, decor, budget: 16, keep: 3, rules: [], daily: key, map: ['. . K . . .', '. . O . O P', '. . M . O .', 'C O O M . .', 'B b . . . L', '. b . . S .'].map(l => l.split(' ')) };
+}
 
 // ---------- tiny sound synth ----------
 const Sound = {
@@ -1303,7 +1360,7 @@ class Home extends Base {
 
   create() {
     this.t = 0; this.par = { x: 0, y: 0, tx: 0, ty: 0 };
-    Sound.playMusic('home'); this.sys.events.once('shutdown', () => {});
+    Sound.playMusic('home'); this.checkUnlocks();
     this.catState = 'sleep'; this.panel = null; this.transit = false; this.grab = null; this.petting = false; this.hint = null; this.knitting = false; this.bubble = null; this.toastC = null;
     this.yarnDrawn = false; this.cat = null; this.avatarHead = null; this.avatar = null; this.previewBrain = null; this.touching = false; this.brain = null; this.sleepTimer = null; this.heartTimer = null;
 
@@ -1568,26 +1625,34 @@ class Home extends Base {
     bar.fillStyle(0xe2524a, 1); bar.fillRoundedRect(-150, 26, Math.max(16, 300 * done / NLEVELS), 16, 8);
     card.add(bar);
     card.add(this.img(-150 + Math.max(8, 300 * done / NLEVELS), 34, 'ball_red').setScale(0.26));
-    card.add(this.txt(-150, 62, `Niveau ${cur} sur ${NLEVELS}`, 25, { fontStyle: '500' }).setOrigin(0, 0.5));
-    card.add(this.img(110, 60, 'ic_star').setScale(0.38));
-    card.add(this.txt(128, 62, `${totalStars()}`, 25).setOrigin(0, 0.5));
+    const allDone = salonDone(), todayDone = !!(Save.daily || {})[dayKey()];
+    card.add(this.txt(-150, 62, allDone ? 'Salon terminé !' : `Niveau ${cur} sur ${NLEVELS}`, 25, { fontStyle: '500' }).setOrigin(0, 0.5));
+    card.add(this.img(82, 60, 'ic_star').setScale(0.38));
+    card.add(this.txt(100, 62, `${totalStars()}/${NLEVELS * 3}`, 25).setOrigin(0, 0.5));
     this.bottom.add(card);
     const play = this.add.container(W / 2, 1346);
     const pbg = this.img(0, 0, 'btn_play');
     this.playBall = this.img(-150, -12, 'ball_red').setScale(0.55);
     play.add([pbg, this.playBall, this.txt(0, -12, 'Jouer', 70, { fontStyle: '700', color: '#fff6ea', stroke: '#a64a22', strokeThickness: 8 }).setOrigin(0.5)]);
-    this.tapify(pbg, () => this.playLevel(cur), 0.92);
+    this.tapify(pbg, () => { if (allDone && !todayDone) this.playDaily(); else if (allDone) this.openHouse(0); else this.playLevel(cur); }, 0.92);
     this.tweens.add({ targets: play, scale: 1.035, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 2200 });
     this.bottom.add(play);
     // navigation : three destinations
     const xs = [175, 375, 575];
     this.bottom.add(this.roundBtn(xs[0], 1500, 'ic_house', 'Maison', () => this.openHouse(0)));
     this.catNav = this.roundBtn(xs[1], 1500, 'ic_paw', catName(), () => this.openCat(0)); this.bottom.add(this.catNav);
-    this.dailyBtn = this.roundBtn(xs[2], 1500, 'ic_cal', 'Du jour', () => this.openDaily(), true);
+    this.dailyBtn = this.roundBtn(xs[2], 1500, 'ic_cal', 'Du jour', () => this.openDaily(), !todayDone);
     this.bottom.add(this.dailyBtn);
     if (intro) this.tweens.add({ targets: this.bottom, y: 0, delay: 700, duration: 700, ease: 'Back.easeOut' });
   }
 
+  playDaily() { Sound.purr(false); this.goScene('level', 'Puzzle du jour', dateLabel(), { daily: true }); }
+  // new cats earned since the last visit
+  checkUnlocks() {
+    const seen = Save.seenUnlock || (Save.seenUnlock = {}); const news = ['siamois', 'fold'].filter(id => !lockedFur(id) && !seen[id]);
+    if (!news.length) return; news.forEach(id => { seen[id] = true; }); persist();
+    this.time.delayedCall(2600, () => { Sound.chime(); this.toast(`Nouveau chat débloqué : ${FURS[news[0]].label} !`); });
+  }
   playLevel(n) {
     if (PLAYABLE[n]) { Sound.purr(false); this.goScene('level', 'Le Salon', `Niveau ${n}`, { n }); }
     else this.curtainDown('Le Salon', `Niveau ${n}`, 'Ce niveau arrive bientôt dans la démo.\nLes niveaux 1 à 8 sont jouables !');
@@ -1597,24 +1662,24 @@ class Home extends Base {
   openHouse(tab = 0) {
     const build = (S, y0) => {
       // room strip
-      ROOMS.forEach(([name, need], i) => {
-        const open = need <= totalStars() && i === 0;
+      ROOMS.forEach((name, i) => {
+        const open = i === 0;
         const x = 96 + i * 112, y = y0 + 16;
         const g = this.add.graphics();
         g.fillStyle(open ? 0xe0703a : 0xf0e0cc, 1); g.fillRoundedRect(x - 50, y - 40, 100, 92, 22);
         if (open) { g.lineStyle(3, 0xffffff, 0.7); g.strokeRoundedRect(x - 44, y - 34, 88, 80, 18); }
         S.add(g);
         S.add(this.txt(x, y - 4, name, 20, { color: open ? '#fff6ea' : '#a68a72' }).setOrigin(0.5));
-        if (!open) { S.add(this.img(x - 18, y + 26, 'ic_star').setScale(0.24)); S.add(this.txt(x - 4, y + 27, String(need), 18, { color: '#a68a72' }).setOrigin(0, 0.5)); }
-        else S.add(this.txt(x, y + 26, `★ ${totalStars()}/54`, 18, { color: '#fff6ea' }).setOrigin(0.5));
+        if (!open) S.add(this.img(x, y + 26, 'ic_lock').setScale(0.3).setAlpha(0.7));
+        else S.add(this.txt(x, y + 26, `★ ${totalStars()}/${NLEVELS * 3}`, 18, { color: '#fff6ea' }).setOrigin(0.5));
         const hit = this.add.zone(x, y, 100, 92); S.add(hit);
-        if (!open) this.tapify(hit, () => this.toast(`${name} : il faut ${need} étoiles pour l'ouvrir`));
+        if (!open) this.tapify(hit, () => this.toast(`${name} : cette pièce arrivera plus tard`));
       });
       this.tabs(S, y0 + 128, ['Niveaux', 'Décorer'], tab, (i) => { tab = i; this.refreshPanel(build); });
       if (tab === 0) this.buildLevelPath(S, y0 + 250);
       else this.buildDecor(S, y0 + 210);
     };
-    this.openPanel('Maison', 1360, build);
+    this.openPanel('Maison', 1180, build);
     this.houseBuild = build;
   }
 
@@ -1628,7 +1693,7 @@ class Home extends Base {
     if (doneUpTo > 0) { path.lineStyle(10, 0xe2524a, 1); path.beginPath(); path.moveTo(pts[0].x, pts[0].y); pts.slice(0, doneUpTo + 1).forEach(p => path.lineTo(p.x, p.y)); path.strokePath(); }
     for (let n = 1; n <= NLEVELS; n++) {
       const p = pos[n - 1]; const c = this.add.container(p.x, p.y); S.add(c);
-      const stars = Save.levels[n] || 0; const state = stars ? 'done' : n === cur ? 'current' : 'locked'; const challenge = n % 6 === 0;
+      const stars = Save.levels[n] || 0; const state = stars ? 'done' : n === cur ? 'current' : 'locked'; const challenge = n % 4 === 0;
       if (state !== 'locked') c.add(this.img(0, 0, challenge ? 'ball_mustard' : 'ball_red').setScale(state === 'current' ? 0.88 : 0.72));
       else { const g = this.add.graphics(); g.fillStyle(0xf0e0cc, 1); g.fillCircle(0, 0, 40); g.lineStyle(3, 0xd9b99a, 1); g.strokeCircle(0, 0, 40); if (challenge) { g.lineStyle(4, 0xf0b43c, 0.9); g.strokeCircle(0, 0, 46); } c.add(g); c.add(this.img(0, 0, 'ic_lock').setScale(0.55)); }
       if (state !== 'locked') c.add(this.txt(0, 0, String(n), 34, { fontStyle: '700', color: '#fff6ea', stroke: '#7a3518', strokeThickness: 6 }).setOrigin(0.5));
@@ -1641,6 +1706,12 @@ class Home extends Base {
         else this.closePanel(() => this.playLevel(n));
       });
     }
+    // what comes next
+    const ny = top + Math.ceil(NLEVELS / cols) * rowH + 30;
+    this.card(S, 44, ny - 10, W - 88, 150, 0xf7e6d1, 30);
+    S.add(this.img(120, ny + 64, 'ic_lock').setScale(0.6).setAlpha(0.6));
+    S.add(this.txt(180, ny + 42, 'À suivre : la Cuisine', 30, { fontStyle: '700' }).setOrigin(0, 0.5));
+    S.add(this.txt(180, ny + 86, salonDone() ? 'Tu as fini le Salon ! En attendant : le puzzle du jour.' : 'En attendant, un puzzle du jour t\'attend chaque matin.', 22, { fontStyle: '500', color: '#9a5a36', wordWrap: { width: 480 } }).setOrigin(0, 0.5));
   }
 
   buildDecor(S, y0) {
@@ -1713,14 +1784,15 @@ class Home extends Base {
           const x = 160 + (i % 3) * 215, y = gy + 110 + Math.floor(i / 3) * 236;
           const c = this.add.container(x, y); S.add(c);
           const sel = Save.fur === id; const g = this.add.graphics();
-          g.fillStyle(P.lock ? 0xf3e7da : 0xfdebd6, 1); g.fillRoundedRect(-95, -100, 190, 212, 30);
+          const lk = lockedFur(id);
+          g.fillStyle(lk ? 0xf3e7da : 0xfdebd6, 1); g.fillRoundedRect(-95, -100, 190, 212, 30);
           if (sel) { g.lineStyle(6, 0xe0703a, 1); g.strokeRoundedRect(-95, -100, 190, 212, 30); }
           c.add(g);
           const h = this.buildHead(true, 0.62, { fur: id, eyes: P.defEyes, acc: null }); h.y = -24; c.add(h);
-          if (P.lock) { h.setAlpha(0.3); c.add(this.img(56, -70, 'ic_lock').setScale(0.5)); c.add(this.txt(0, 66, P.lock, 19, { fontStyle: '500', color: '#a68a72', align: 'center', wordWrap: { width: 170 } }).setOrigin(0.5)); }
+          if (lk) { h.setAlpha(0.3); c.add(this.img(56, -70, 'ic_lock').setScale(0.5)); c.add(this.txt(0, 66, P.lock, 19, { fontStyle: '500', color: '#a68a72', align: 'center', wordWrap: { width: 170 } }).setOrigin(0.5)); }
           else { c.add(this.txt(0, 58, P.label, 22, { fontStyle: '700', color: sel ? '#e0703a' : INK }).setOrigin(0.5)); c.add(this.txt(0, 86, P.persoLabel, 19, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5)); }
           const hit = this.add.zone(0, 0, 190, 212); c.add(hit);
-          this.tapify(hit, () => { if (P.lock) { this.toast(`Pour débloquer ce chat : ${P.lock.toLowerCase()}`); return; } if (!sel) { Save.fur = id; Save.eyes = P.defEyes; apply(); } });
+          this.tapify(hit, () => { if (lk) { this.toast(`Pour débloquer ce chat : ${P.lock.toLowerCase()}`); return; } if (!sel) { Save.fur = id; Save.eyes = P.defEyes; apply(); } });
         });
       } else if (tab === 1) {
         Object.entries(EYES).forEach(([id, [label]], i) => {
@@ -1767,39 +1839,37 @@ class Home extends Base {
   // ====================================================== DU JOUR
   openDaily() {
     this.openPanel('Puzzle du jour', 1300, (S, y0) => {
-      const now = new Date(); const today = now.getDate();
+      const now = new Date(); const today = now.getDate(); const D = Save.daily || {};
       const first = new Date(now.getFullYear(), now.getMonth(), 1); const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const month = now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-      const missed = new Set([2, 9].filter(d => d < today));
-      const done = (d) => d < today && !missed.has(d);
-      let streak = 0; for (let d = today - 1; d >= 1 && done(d); d--) streak++;
+      const starsOf = (d) => D[dayKey(new Date(now.getFullYear(), now.getMonth(), d))] || 0;
+      const streak = dailyStreak(), todayStars = starsOf(today), count = dailyCount();
       this.card(S, 44, y0 - 10, W - 88, 120, 0xf7e6d1, 30);
       S.add(this.img(110, y0 + 50, 'ball_red').setScale(0.6));
-      S.add(this.txt(160, y0 + 30, `Série : ${streak} jour${streak > 1 ? 's' : ''}`, 34, { fontStyle: '700' }).setOrigin(0, 0.5));
-      S.add(this.txt(160, y0 + 72, 'Un jour manqué peut être rattrapé dans la semaine', 22, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0, 0.5));
+      S.add(this.txt(160, y0 + 30, streak ? `Série : ${streak} jour${streak > 1 ? 's' : ''}` : 'Un nouveau puzzle chaque jour', streak ? 34 : 30, { fontStyle: '700' }).setOrigin(0, 0.5));
+      S.add(this.txt(160, y0 + 72, 'Le même pour tous, toujours faisable en 3 étoiles', 21, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0, 0.5));
       S.add(this.txt(W / 2, y0 + 160, month.charAt(0).toUpperCase() + month.slice(1), 32, { fontStyle: '700' }).setOrigin(0.5));
       ['L', 'M', 'M', 'J', 'V', 'S', 'D'].forEach((d, i) => S.add(this.txt(118 + i * 86, y0 + 216, d, 24, { color: '#a68a72' }).setOrigin(0.5)));
       const offset = (first.getDay() + 6) % 7;
       for (let d = 1; d <= days; d++) {
         const idx = d - 1 + offset; const x = 118 + (idx % 7) * 86, y = y0 + 280 + Math.floor(idx / 7) * 92;
-        const c = this.add.container(x, y); S.add(c);
-        if (done(d)) { c.add(this.img(0, 0, 'ball_red').setScale(0.52)); c.add(this.txt(0, 0, String(d), 24, { fontStyle: '700', color: '#fff6ea', stroke: '#7a3518', strokeThickness: 5 }).setOrigin(0.5)); }
+        const c = this.add.container(x, y); S.add(c); const st = starsOf(d);
+        if (st) { c.add(this.img(0, 0, st === 3 ? 'ball_mustard' : 'ball_red').setScale(0.52)); c.add(this.txt(0, 0, String(d), 24, { fontStyle: '700', color: '#fff6ea', stroke: '#7a3518', strokeThickness: 5 }).setOrigin(0.5)); if (d === today) { const g = this.add.graphics(); g.lineStyle(4, 0xe0703a, 1); g.strokeCircle(0, 0, 38); c.addAt(g, 0); } }
         else if (d === today) { const g = this.add.graphics(); g.fillStyle(0xe0703a, 1); g.fillCircle(0, 0, 36); c.add(g); c.add(this.txt(0, 0, String(d), 26, { fontStyle: '700', color: '#fff6ea' }).setOrigin(0.5)); this.tweens.add({ targets: c, scale: 1.1, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); }
-        else if (missed.has(d)) { const g = this.add.graphics(); g.lineStyle(3, 0xe0703a, 0.8); g.strokeCircle(0, 0, 32); c.add(g); c.add(this.txt(0, 0, String(d), 24, { color: '#e0703a' }).setOrigin(0.5)); const hit = this.add.zone(0, 0, 80, 80); c.add(hit); this.tapify(hit, () => this.closePanel(() => this.curtainDown(`Rattrapage du ${d}`, 'Puzzle du jour', 'Les puzzles du jour arrivent bientôt dans la démo.'))); }
-        else c.add(this.txt(0, 0, String(d), 24, { fontStyle: '500', color: '#c9ad94' }).setOrigin(0.5));
+        else c.add(this.txt(0, 0, String(d), 24, { fontStyle: '500', color: d < today ? '#d9c3ad' : '#b8957a' }).setOrigin(0.5));
       }
       const ry = H - 260;
       this.card(S, 44, ry - 50, W - 88, 100, 0xf7e6d1, 26);
-      S.add(this.txt(70, ry - 16, '7 jours : laine rose rare', 24).setOrigin(0, 0.5));
-      S.add(this.txt(70, ry + 18, '30 jours : pelage calico', 24).setOrigin(0, 0.5));
-      S.add(this.img(W - 110, ry, 'ball_rose').setScale(0.55));
-      S.add(this.pillBtn(W / 2, H - 120, 440, 96, 'Jouer le puzzle du jour', 0xe0703a, () => { if (this.dailyBtn.badge) { this.dailyBtn.badge.destroy(); this.dailyBtn.badge = null; } this.closePanel(() => this.curtainDown('Puzzle du jour', '', 'Les puzzles du jour arrivent bientôt dans la démo.')); }, { size: 32 }));
+      const hd = this.buildHead(true, 0.42, { fur: 'fold', eyes: FURS.fold.defEyes }); hd.setPosition(104, ry + 2); S.add(hd);
+      S.add(this.txt(160, ry - 16, count >= 3 ? `${FURS.fold.label} débloqué !` : `3 puzzles réussis : ${FURS.fold.label}`, 25, { fontStyle: '700' }).setOrigin(0, 0.5));
+      S.add(this.txt(160, ry + 18, count >= 3 ? `${count} puzzles réussis · pelote dorée = 3 étoiles` : `${count} sur 3 · pelote dorée = 3 étoiles`, 21, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0, 0.5));
+      S.add(this.pillBtn(W / 2, H - 120, 480, 96, todayStars === 3 ? 'Rejouer (déjà parfait)' : todayStars ? 'Retenter les 3 étoiles' : 'Jouer le puzzle du jour', todayStars === 3 ? 0xc9a98c : 0xe0703a, () => this.closePanel(() => this.playDaily()), { size: 30 }));
     });
   }
 
   // ====================================================== RÉGLAGES
   openSettings() {
-    this.openPanel('Réglages', 990, (S, y0) => {
+    this.openPanel('Réglages', 900, (S, y0) => {
       const rows = [['music', 'Musique', 'Mélodies douces au piano'], ['sfx', 'Effets sonores', 'Pops, ronronnements, carillons'], ['vib', 'Vibrations', 'Petits retours au toucher'], ['reduce', 'Animations réduites', 'Moins de mouvement à l\'écran']];
       rows.forEach(([key, label, sub], i) => {
         const y = y0 + 30 + i * 132; const c = this.add.container(0, y); S.add(c); c.noTapScale = true;
@@ -1813,20 +1883,23 @@ class Home extends Base {
         const hit = this.add.zone(0, 0, 130, 80); sw.add(hit);
         this.tapify(hit, () => { Save[key] = !Save[key]; persist(); draw(); if (key === 'sfx' && !Save.sfx) Sound.purr(false); if (key === 'reduce') this.dust.emitting = !Save.reduce; if (key === 'music') { if (Save.music) Sound.playMusic('home'); else Sound.stopMusic(); } }, 0.96);
       });
-      const yb = y0 + 30 + rows.length * 132 + 20;
-      S.add(this.txt(84, yb, 'Langue', 30, { fontStyle: '700' }).setOrigin(0, 0.5));
-      S.add(this.txt(W - 84, yb, 'Français', 28, { color: '#9a5a36' }).setOrigin(1, 0.5));
-      S.add(this.pillBtn(W / 2 - 150, yb + 100, 260, 76, 'Aide', 0x4f96d8, () => this.toast('Chaque niveau rappelle ses règles au début'), { size: 28 }));
-      S.add(this.pillBtn(W / 2 + 150, yb + 100, 260, 76, 'Réinitialiser', 0xc9a98c, () => { Object.keys(Save).forEach(k => delete Save[k]); Object.assign(Save, JSON.parse(JSON.stringify(DEFAULT))); persist(); this.registry.set('introDone', false); this.closePanel(() => this.scene.restart()); }, { size: 28 }));
+      const yb = y0 + 30 + rows.length * 132 + 30;
+      S.add(this.txt(W / 2, yb - 4, 'Ta progression est gardée sur cet appareil.', 22, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
+      let armed = false;
+      const rb = this.pillBtn(W / 2, yb + 76, 400, 76, 'Tout recommencer', 0xc9a98c, () => {
+        if (!armed) { armed = true; rb.label.setText('Sûr ? Tout sera effacé'); this.time.delayedCall(3000, () => { if (rb.scene) { armed = false; rb.label.setText('Tout recommencer'); } }); return; }
+        Object.keys(Save).forEach(k => delete Save[k]); Object.assign(Save, JSON.parse(JSON.stringify(DEFAULT))); persist(); Sound.stopMusic(); this.registry.set('introDone', false); this.closePanel(() => this.scene.restart());
+      }, { size: 26 });
+      S.add(rb);
     });
   }
 
   // ====================================================== PROFIL
   openProfile() {
     this.openPanel('Profil', 980, (S, y0) => {
-      const h = this.buildHead(true, 1.05); h.setPosition(W / 2, y0 + 70); S.add(h);
-      S.add(this.txt(W / 2, y0 + 170, `Toi & ${catName()}`, 36, { fontStyle: '700' }).setOrigin(0.5));
-      const stats = [['Niveaux terminés', `${Object.keys(Save.levels).length}`], ['Étoiles', `${totalStars()} / 54`], ['Laine déroulée', `${Math.round(Save.yarn * 10) / 10} m`], ['Câlins au chaton', `${Save.pets}`], ['Accessoires', `${Object.keys(Save.accOwned).length} / ${ACCS.length - 1}`], ['Objets tricotés', `${Object.keys(Save.items).length} / ${ITEMS.length}`]];
+      const h = this.buildHead(true, 0.9); h.setPosition(W / 2, y0 + 92); S.add(h);
+      S.add(this.txt(W / 2, y0 + 182, `Toi & ${catName()}`, 36, { fontStyle: '700' }).setOrigin(0.5));
+      const stats = [['Niveaux terminés', `${Object.keys(Save.levels).length} / ${NLEVELS}`], ['Étoiles', `${totalStars()} / ${NLEVELS * 3}`], ['Laine déroulée', `${Math.round(Save.yarn * 10) / 10} m`], ['Câlins au chaton', `${Save.pets}`], ['Accessoires', `${Object.keys(Save.accOwned).length} / ${ACCS.length - 1}`], ['Objets tricotés', `${Object.keys(Save.items).length} / ${ITEMS.length}`]];
       stats.forEach(([k, v], i) => {
         const col = i % 2, row = Math.floor(i / 2); const x = 60 + col * 325, y = y0 + 250 + row * 140;
         this.card(S, x, y, 305, 120, 0xf7e6d1, 26);
@@ -1838,16 +1911,16 @@ class Home extends Base {
 
   // ====================================================== BOUTIQUE
   openShop() {
-    this.openPanel('Boutique', 1060, (S, y0) => {
-      S.add(this.txt(W / 2, y0, 'Uniquement de la décoration : jamais d\'avantage pour gagner.', 24, { fontStyle: '500', color: '#9a5a36', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5, 0));
-      [['Poignée de laine', '+100 laine', 'Gratuit (démo)', 'ball_mustard', true], ['Sac de laine', '+500 laine', '2,99 €', 'ball_blue', false], ['Pack Hiver', 'Bonnet de Noël + thème neige', '4,99 €', 'ball_rose', false], ['Sans publicité', 'Pour toujours', '3,99 €', 'ball_sage', false]]
+    this.openPanel('Boutique', 900, (S, y0) => {
+      S.add(this.txt(W / 2, y0, 'Démo : rien n\'est à vendre. Plus tard, uniquement de la décoration, jamais d\'avantage pour gagner.', 24, { fontStyle: '500', color: '#9a5a36', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5, 0));
+      [['Poignée de laine', '+100 laine', 'Gratuit (démo)', 'ball_mustard', true], ['Sac de laine', '+500 laine', 'Bientôt', 'ball_blue', false], ['Pack Hiver', 'Bonnet de Noël + thème neige', 'Bientôt', 'ball_rose', false]]
         .forEach(([name, sub, price, icon, free], i) => {
-          const y = y0 + 130 + i * 180; const c = this.add.container(0, y); S.add(c); c.noTapScale = true;
+          const y = y0 + 160 + i * 180; const c = this.add.container(0, y); S.add(c); c.noTapScale = true;
           const g = this.add.graphics(); g.fillStyle(0xf7e6d1, 1); g.fillRoundedRect(44, -72, W - 88, 152, 30); c.add(g);
           c.add(this.img(130, 4, icon).setScale(0.85));
           c.add(this.txt(210, -22, name, 30, { fontStyle: '700' }).setOrigin(0, 0.5));
           c.add(this.txt(210, 18, sub, 22, { fontStyle: '500', color: '#9a5a36', wordWrap: { width: 260 } }).setOrigin(0, 0.5));
-          c.add(this.pillBtn(W - 150, 4, 190, 72, price, free ? 0x7fbf78 : 0xc9a98c, () => { if (free) { this.setLaine(Save.laine + 100); Sound.chime(); this.toast('+100 laine !'); } else this.toast('Achats désactivés dans la démo'); }, { size: free ? 22 : 26 }));
+          c.add(this.pillBtn(W - 150, 4, 190, 72, price, free ? 0x7fbf78 : 0xc9a98c, () => { if (free) { this.setLaine(Save.laine + 100); Sound.chime(); this.toast('+100 laine !'); } else this.toast('Pas d\'achats dans la démo'); }, { size: free ? 22 : 26 }).setAlpha(free ? 1 : 0.55));
         });
     });
   }
@@ -2019,7 +2092,7 @@ const LIGHT_NAMES = { matin: 'Le matin', aprem: 'L\'après-midi', soir: 'Le soir
 
 class Level extends Base {
   constructor() { super('level'); }
-  init(data) { this.n = (data && data.n) || 1; this.quick = !!(data && data.quick); }
+  init(data) { this.daily = !!(data && data.daily); this.dkey = dayKey(); this.n = this.daily ? 'jour' : (data && data.n) || 1; this.quick = !!(data && data.quick); }
 
   // ---------- geometry for this board
   geom(L) {
@@ -2033,20 +2106,21 @@ class Level extends Base {
   front(c, r) { const G = this.G; return G.BY + (r + 1) * G.TS + c * 0.001; }
 
   roomTexture() {
-    const key = 'tdroom_' + this.n, G = this.G;
+    const rk = this.daily ? this.dkey : this.n; const key = 'tdroom_' + rk, G = this.G;
     const top = G.BY - 172, bot = G.BY + G.rows * G.TS + 76; this.roomTop = top;
     if (!this.textures.exists(key)) {
       const cv = document.createElement('canvas'); cv.width = W; cv.height = bot - top;
       const c = cv.getContext('2d'); c.translate(0, -top);
       this.roomInfo = paintTopDown(c, G, this.L.light, this.L.decor || 0);
       this.textures.addCanvas(key, cv);
-      this.registry.set('roomInfo_' + this.n, this.roomInfo);
-    } else this.roomInfo = this.registry.get('roomInfo_' + this.n);
+      this.registry.set('roomInfo_' + rk, this.roomInfo);
+    } else this.roomInfo = this.registry.get('roomInfo_' + rk);
     return { key, y: (top + bot) / 2 };
   }
 
   create() {
-    const L = LEVELS[this.n] || LEVELS[1]; this.L = L;
+    const L = this.daily ? makeDaily(this.dkey) : (LEVELS[this.n] || LEVELS[1]); this.L = L;
+    this.label = this.daily ? dateLabel() : `Niveau ${this.n}`;
     this.G = this.geom(L); const G = this.G, k = G.k;
     this.t = 0; this.panel = null; this.transit = false; this.toastC = null;
     this.busy = false; this.queue = []; this.won = false; this.hintMarks = []; this.saidCross = false; this.tagFaded = false; this.yarnKey = null;
@@ -2152,7 +2226,7 @@ class Level extends Base {
     const c = this.add.container(W / 2, 700).setDepth(50).setScale(0.6).setAlpha(0);
     const g = this.add.graphics(); g.fillStyle(0x7a3518, 0.18); g.fillRoundedRect(-280, -150, 560, 312, 40); g.fillStyle(0xfff6ea, 1); g.fillRoundedRect(-280, -158, 560, 312, 40);
     g.lineStyle(2.5, 0xc8784a, 0.35); g.strokeRoundedRect(-268, -146, 536, 288, 30); c.add(g);
-    c.add(this.txt(0, -112, `Niveau ${this.n} · ${LIGHT_NAMES[L.light]}`, 24, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5));
+    c.add(this.txt(0, -112, `${this.label} · ${LIGHT_NAMES[L.light]}`, 24, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5));
     c.add(this.txt(0, -64, L.title, 46, { fontStyle: '700' }).setOrigin(0.5));
     const goals = [['t_basket_back', 0.34, 'Le panier'], ['btn_sewing_red', 0.62, this.nb > 1 ? `${this.nb} boutons` : '1 bouton'], ['ball_red', 0.3, `Garder ${L.keep}`]];
     goals.forEach(([key, sc, label], i) => {
@@ -2246,7 +2320,7 @@ class Level extends Base {
     const hgt = Math.min(1300, 330 + keys.length * rh + (first ? 40 : 0));
     const build = (S, y0) => {
       let y = y0 + 10;
-      if (first) { S.add(this.txt(W / 2, y0 - 6, `Niveau ${this.n} · ${LIGHT_NAMES[this.L.light]}`, 26, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5)); y += 40; }
+      if (first) { S.add(this.txt(W / 2, y0 - 6, `${this.label} · ${LIGHT_NAMES[this.L.light]}`, 26, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5)); y += 40; }
       keys.forEach((kk, i) => this.ruleRow(S, kk, y + rh / 2 + i * rh, rh));
       S.add(this.pillBtn(W / 2, H - 120, 420, 100, first ? 'C\'est parti !' : 'Reprendre', 0xe0703a, () => this.closePanel(() => this.startPlay(first)), { size: 34 }));
     };
@@ -2598,8 +2672,8 @@ class Level extends Base {
     this.tapify(bb, () => { if (this.transit) return; this.registry.set('fromLevel', true); this.goScene('home', 'Pelote', 'Retour à la maison'); });
     const help = this.add.container(166, 92); const hb = this.img(0, 0, 'btn_small').setScale(0.86); help.add([hb, this.txt(0, -6, '?', 40, { fontStyle: '700', color: '#a4502a' }).setOrigin(0.5)]); top.add(help);
     this.tapify(hb, () => { if (!this.locked && !this.won && !this.panel && !this.busy) { this.locked = true; this.rules(false); } });
-    top.add(this.txt(W / 2 + 20, 76, `Le Salon · ${this.n}`, 36, { fontStyle: '700' }).setOrigin(0.5));
-    top.add(this.txt(W / 2 + 20, 114, this.L.title, 23, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
+    top.add(this.txt(W / 2 + 20, 76, this.daily ? 'Du jour' : `Le Salon · ${this.n}`, 36, { fontStyle: '700' }).setOrigin(0.5));
+    top.add(this.txt(W / 2 + 20, 114, this.daily ? new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : this.L.title, 23, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
     const counter = this.add.container(W - 112, 92); counter.add([this.img(0, 0, 'pill').setScale(0.86, 1), this.img(-68, -4, 'ball_red').setScale(0.4)]);
     this.counterTxt = this.txt(12, -6, '', 36).setOrigin(1, 0.5); counter.add(this.counterTxt);
     counter.add(this.txt(18, -4, 'laines', 21, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0, 0.5));
@@ -2779,8 +2853,9 @@ class Level extends Base {
     if (this.L.tut) this.tutDone();
     const allB = this.got === this.nb, kept = this.remaining >= this.L.keep;
     const stars = 1 + (allB ? 1 : 0) + (kept ? 1 : 0);
-    const prev = Save.levels[this.n] || 0; const gain = Math.max(0, stars - prev) * 10 + (prev ? 0 : 10);
-    Save.levels[this.n] = Math.max(prev, stars); Save.laine += gain; persist();
+    const book = this.daily ? (Save.daily || (Save.daily = {})) : Save.levels, bk = this.daily ? this.dkey : this.n;
+    const prev = book[bk] || 0; const gain = Math.max(0, stars - prev) * 10 + (prev ? 0 : 10);
+    book[bk] = Math.max(prev, stars); Save.laine += gain; persist();
     const p = this.tc(...this.goal), k = this.G.k;
     this.tweens.add({ targets: [this.botC, this.sayBox, this.ballTxt], alpha: 0, duration: 250 });
     this.tweens.killTweensOf([this.goalRing, this.goalArrow]); this.goalRing.setVisible(false); this.goalTag.setVisible(false); this.goalArrow.setVisible(false);
@@ -2792,8 +2867,8 @@ class Level extends Base {
     this.tweens.add({ targets: this.ball, x: p.x + 50 * k * (p.x > W / 2 ? -1 : 1), y: p.y + 36 * k, rotation: this.ball.rotation + 4, duration: 500, ease: 'Quad.easeOut' });
     const sp = this.toScreen(p);
     for (let i = 0; i < 18; i++) { const s = this.img(sp.x, sp.y - 60, i % 3 ? 'spark' : 'heart').setScale(0.3).setDepth(60); this.tweens.add({ targets: s, x: s.x + Phaser.Math.Between(-160, 160), y: s.y + Phaser.Math.Between(-220, 40), alpha: 0, scale: 0.8, angle: Phaser.Math.Between(-180, 180), duration: 1100, ease: 'Quad.easeOut', onComplete: () => s.destroy() }); }
-    const cases = this.path.length - 1; const bests = Save.best || (Save.best = {}); const prevBest = bests[this.n];
-    this.newRecord = !prevBest || cases < prevBest; if (this.newRecord) bests[this.n] = cases; persist();
+    const cases = this.path.length - 1; const bests = Save.best || (Save.best = {}); const rkey = this.daily ? 'jour' + this.dkey : this.n; const prevBest = bests[rkey];
+    this.newRecord = !prevBest || cases < prevBest; if (this.newRecord) bests[rkey] = cases; persist();
     this.time.delayedCall(900, () => {
       if (this.n === 1 && !Save.named) askName(`Bravo ! Comment s'appelle ton chaton\u00a0?`, 'Garder ' + catName(), (v) => { if (v) Save.name = v; Save.named = true; persist(); if (this.won && this.n === 1) this.winBar(stars, gain, [true, allB, kept]); });
       else this.winBar(stars, gain, [true, allB, kept]);
@@ -2850,7 +2925,7 @@ class Level extends Base {
     const next = this.n + 1, hasNext = !!(PLAYABLE[next] && LEVELS[next]);
     const home = () => { this.registry.set('fromLevel', true); this.registry.set('afterLevelToast', gain ? `+${gain} laine gagnée !` : null); this.goScene('home', 'Pelote', 'Retour à la maison'); };
     const b = this.add.container(0, 60).setDepth(30).setAlpha(0);
-    b.add(this.pillBtn(W / 2 - 236, 1500, 150, 96, '', 0xc9a98c, () => this.scene.restart({ n: this.n, quick: true }), { icon: 'ic_restart' }));
+    b.add(this.pillBtn(W / 2 - 236, 1500, 150, 96, '', 0xc9a98c, () => this.scene.restart({ n: this.n, daily: this.daily, quick: true }), { icon: 'ic_restart' }));
     b.add(this.pillBtn(W / 2 - 70, 1500, 150, 96, '', 0xc9a98c, home, { icon: 'ic_house' }));
     const nb = hasNext ? this.pillBtn(W / 2 + 160, 1500, 290, 96, 'Niveau ' + next, 0xe0703a, () => this.goScene('level', 'Le Salon', `Niveau ${next}`, { n: next }), { size: 30 })
       : this.pillBtn(W / 2 + 160, 1500, 290, 96, 'Continuer', 0xe0703a, home, { size: 30 });
@@ -2870,10 +2945,10 @@ class Level extends Base {
       const lines = [['Arrivé au panier', true], [bl, this.got === this.nb], [`Garder ${this.L.keep} laines (il t'en reste ${this.remaining})`, this.remaining >= this.L.keep]];
       lines.forEach(([l, ok], i) => { const y = y0 + 360 + i * 64; S.add(this.img(110, y, ok ? 'ic_check' : 'ic_star_off').setScale(ok ? 0.5 : 0.36)); S.add(this.txt(150, y, l, 27, { fontStyle: ok ? '600' : '500', color: ok ? INK : '#a68a72' }).setOrigin(0, 0.5)); });
       if (gain > 0) { S.add(this.img(W / 2 - 70, y0 + 548, 'ball_mustard').setScale(0.42)); S.add(this.txt(W / 2 - 36, y0 + 548, `+${gain} laine`, 34, { fontStyle: '700' }).setOrigin(0, 0.5)); }
-      const bests = Save.best || {}; S.add(this.txt(W / 2, y0 + 600, `Chemin : ${this.path.length - 1} cases · ton record : ${bests[this.n] || this.path.length - 1}` + (this.optimum ? ` · minimum : ${this.optimum}` : ''), 23, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5));
+      const bests = Save.best || {}; S.add(this.txt(W / 2, y0 + 600, `Chemin : ${this.path.length - 1} cases · ton record : ${bests[this.daily ? 'jour' + this.dkey : this.n] || this.path.length - 1}` + (this.optimum ? ` · minimum : ${this.optimum}` : ''), 23, { fontStyle: '600', color: '#9a5a36' }).setOrigin(0.5));
       if (stars < 3) S.add(this.txt(W / 2, y0 + 640, this.got < this.nb ? 'Astuce : prends les boutons dans le bon ordre.' : 'Astuce : un chemin plus court garde plus de laine.', 23, { fontStyle: '500', color: '#9a5a36' }).setOrigin(0.5));
       const home = () => { this.registry.set('fromLevel', true); this.registry.set('afterLevelToast', gain ? `+${gain} laine gagnée !` : null); this.goScene('home', 'Pelote', 'Retour à la maison'); };
-      S.add(this.pillBtn(W / 2 - 236, H - 130, 150, 96, '', 0xc9a98c, () => { this.panel = null; this.scene.restart({ n: this.n, quick: true }); }, { size: 30, icon: 'ic_restart' }));
+      S.add(this.pillBtn(W / 2 - 236, H - 130, 150, 96, '', 0xc9a98c, () => { this.panel = null; this.scene.restart({ n: this.n, daily: this.daily, quick: true }); }, { size: 30, icon: 'ic_restart' }));
       S.add(this.pillBtn(W / 2 - 70, H - 130, 150, 96, '', 0xc9a98c, home, { size: 30, icon: 'ic_house' }));
       if (hasNext) S.add(this.pillBtn(W / 2 + 160, H - 130, 290, 96, 'Niveau ' + next, 0xe0703a, () => { this.goScene('level', 'Le Salon', `Niveau ${next}`, { n: next }); }, { size: 30 }));
       else S.add(this.pillBtn(W / 2 + 160, H - 130, 290, 96, 'Continuer', 0xe0703a, home, { size: 30 }));
