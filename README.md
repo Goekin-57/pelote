@@ -6,7 +6,8 @@ Le fil ne peut jamais se croiser, chaque case coûte une laine, et on peut reven
 **Jouer en ligne :** https://goekin-57.github.io/pelote/
 
 ## Contenu de la démo
-- Le Salon : 8 niveaux (tutoriel, pelotes bonus, canards à tirer)
+- Le Salon : 11 niveaux (tutoriel, pelotes bonus, canards à pousser, bobines qui coupent le fil)
+- Un puzzle du jour, généré et vérifié par un solveur
 - Chaton personnalisable (race, yeux, accessoires, nom) qui réagit au toucher
 - Lumière selon le moment de la journée, sauvegarde locale
 

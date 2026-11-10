@@ -84,7 +84,7 @@ const FURS = {
              ear: 'tufted', earX: 32, earY: -44, earRot: 0.3, eye: 'round', eyeDX: 23, eyeY: -4, face: 'ruff', defEyes: 'vert', tailW: 20, tailRings: true, tailFluff: true, pattern: 'tabby', fluffy: true },
   siamois: { label: 'Siamois', perso: 'bavard', persoLabel: 'Bavard', desc: 'A toujours quelque chose à raconter.',
              base: '#f2e2cb', light: '#fff6e8', dark: '#d8c09e', stripe: null, cream: '#fffaf0', earCol: '#6b4a3a', inner: '#a8857a', tip: '#5a3c2e', nose: '#5a3c2e', line: '#5a3a2e', whisk: 0xffffff, mask: '#6b4a3a', lidCol: '#b49478',
-             ear: 'big', earX: 36, earY: -38, earRot: 0.55, eye: 'almond', eyeDX: 22, eyeY: -4, face: 'tri', defEyes: 'bleu', tailW: 10, pattern: 'points', lock: 'Termine les 8 niveaux du Salon' },
+             ear: 'big', earX: 36, earY: -38, earRot: 0.55, eye: 'almond', eyeDX: 22, eyeY: -4, face: 'tri', defEyes: 'bleu', tailW: 10, pattern: 'points', lock: 'Termine tous les niveaux du Salon' },
   fold:    { label: 'Scottish fold', perso: 'doux', persoLabel: 'Tout doux', desc: 'Fait des clignements d\'amour tout lents.',
              base: '#fbf3e6', light: '#ffffff', dark: '#e3d6c3', stripe: null, cream: '#ffffff', earCol: '#e89448', inner: '#f2b9a4', tip: '#3d3742', nose: '#f29aa6', line: '#9a6a4a', whisk: 0xcbb9a6, lidCol: '#f3e5cf',
              ear: 'fold', earX: 32, earY: -38, earRot: 0.34, eye: 'big', eyeDX: 23, eyeY: -2, face: 'round', defEyes: 'ambre', tailW: 15, pattern: 'calico', patches: true, lock: 'Réussis 3 puzzles du jour' },
@@ -107,7 +107,7 @@ const ITEMS = [
   { id: 'pouf', name: 'Pouf tricoté', cost: 80, desc: 'Le coin lecture parfait.' },
 ];
 const ROOMS = ['Salon', 'Cuisine', 'Grenier', 'Jardin', 'Atelier', 'Mercerie'];
-const NLEVELS = 8;
+const NLEVELS = 11;
 
 // ---------- save (local, per browser) ----------
 const DEFAULT = { laine: 128, fur: 'roux', eyes: 'ambre', acc: null, accOwned: {}, items: {}, levels: {}, pets: 0, yarn: 0, sfx: true, music: true, vib: true, reduce: false, cb: false, hintSeen: false, tutDone: false, tuts: {}, seenRules: {}, name: '', named: false, daily: {}, best: {}, seenUnlock: {} };
@@ -144,31 +144,40 @@ const dailyStreak = () => { const D = Save.daily || {}; const d = new Date(); if
 const lockedFur = (id) => id === 'siamois' ? !salonDone() : id === 'fold' ? dailyCount() < 3 : false;
 const dateLabel = (d = new Date()) => { const t = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); return t.charAt(0).toUpperCase() + t.slice(1); };
 const currentLevel = () => { for (let n = 1; n <= NLEVELS; n++) if (!Save.levels[n]) return n; return NLEVELS; };
-const PLAYABLE = { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true };
+const PLAYABLE = { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true };
 
 // ---------- puzzle du jour : a board generated from the date, kept only if the solver proves it fair
 const dayKey = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-function solveGrid(grid, budget, cap = 250000) {
-  const R = grid.length, C = grid[0].length; let S, K; const btn = new Set(), ys = new Set(), toys = new Set();
-  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) { const ch = grid[r][c], k = c + ',' + r; if (ch === 'S') S = [c, r]; if (ch === 'K') K = [c, r]; if (ch === 'b') btn.add(k); if (ch === 'y') ys.add(k); if (ch === 'M') toys.add(k); }
-  const walk = (c, r) => c >= 0 && r >= 0 && c < C && r < R && 'SKby.M'.includes(grid[r][c]);
+// one solver for everything : yarn that can't cross itself, buttons, bonus balls (+5), ducks to push, spools that cut the yarn (once each)
+function solveGrid(grid, budget, cap = 250000, st = null) {
+  const R = grid.length, C = grid[0].length; let S, K; const btn = new Set();
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) { const ch = grid[r][c], k = c + ',' + r; if (ch === 'S') S = [c, r]; if (ch === 'K') K = [c, r]; if (ch === 'b') btn.add(k); }
+  const toys = new Set(), tb = new Set(), ty = new Set(), ur = new Set(); let on, pos;
+  if (st) { pos = st.pos; on = new Set(st.live); st.toys.forEach(k => toys.add(k)); st.takenB.forEach(k => tb.add(k)); st.takenY.forEach(k => ty.add(k)); st.usedR.forEach(k => ur.add(k)); }
+  else { pos = S; on = new Set([S[0] + ',' + S[1]]); for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) if (grid[r][c] === 'M') toys.add(c + ',' + r); }
+  const walk = (c, r) => c >= 0 && r >= 0 && c < C && r < R && 'SKby.MR'.includes(grid[r][c]);
   const duckOk = (c, r) => c >= 0 && r >= 0 && c < C && r < R && '.M'.includes(grid[r][c]);
-  const on = new Set([S[0] + ',' + S[1]]); let best = null, bestScore = -1, nodes = 0, three = 0; const route = [];
-  const dfs = (c, r, rem, got) => {
+  let best = null, bestScore = -1, nodes = 0, three = 0; const route = [];
+  const dfs = (c, r, rem, ban) => {
     if (++nodes > cap) return;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nc = c + dx, nr = r + dy, k = nc + ',' + nr;
-      if (rem <= 0 || on.has(k) || !walk(nc, nr)) continue;
+      if (rem <= 0 || k === ban || on.has(k) || !walk(nc, nr)) continue;
       let mv = null;
       if (toys.has(k)) { const ux = nc + dx, uy = nr + dy, uk = ux + ',' + uy; if (!duckOk(ux, uy) || toys.has(uk) || on.has(uk)) continue; toys.delete(k); toys.add(uk); mv = [k, uk]; }
-      on.add(k); route.push([nc, nr]);
-      const g = got + (btn.has(k) ? 1 : 0), rm = rem - 1 + (ys.has(k) ? 5 : 0);
-      if (nc === K[0] && nr === K[1]) { const sc = g * 1000 + rm * 10 - route.length * 0.01; if (g === btn.size && rm >= 3) three++; if (sc > bestScore) { bestScore = sc; best = { route: route.slice(), got: g, rem: rm }; } }
-      else dfs(nc, nr, rm, g);
-      route.pop(); on.delete(k); if (mv) { toys.delete(mv[1]); toys.add(mv[0]); }
+      const ch = grid[nr][nc]; route.push([nc, nr]);
+      const nb = ch === 'b' && !tb.has(k), ny = ch === 'y' && !ty.has(k), cut = ch === 'R' && !ur.has(k);
+      if (nb) tb.add(k); if (ny) ty.add(k);
+      const rm = rem - 1 + (ny ? 5 : 0); const saved = on;
+      if (cut) { ur.add(k); on = new Set([k]); } else on.add(k);
+      if (nc === K[0] && nr === K[1]) { const sc = tb.size * 1000 + rm * 10 - route.length * 0.01; if (tb.size === btn.size && rm >= 3) three++; if (sc > bestScore) { bestScore = sc; best = { route: route.slice(), got: tb.size, rem: rm }; } }
+      else dfs(nc, nr, rm, cut ? c + ',' + r : null);   // right after a cut, stepping back would be a rewind
+      if (cut) { ur.delete(k); on = saved; } else on.delete(k);
+      if (nb) tb.delete(k); if (ny) ty.delete(k);
+      route.pop(); if (mv) { toys.delete(mv[1]); toys.add(mv[0]); }
     }
   };
-  dfs(S[0], S[1], budget, 0);
+  dfs(pos[0], pos[1], budget, st ? st.ban : null);
   return { best, complete: nodes <= cap, nb: btn.size, three, nodes };
 }
 function makeDaily(key) {
@@ -794,6 +803,23 @@ class Boot extends Phaser.Scene {
       c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 2; c.setLineDash([4, 4]); rr(c, 38, 62, 44, 26, 8); c.stroke(); c.setLineDash([]);
       [[12, 22], [90, 22]].forEach(([x]) => { c.fillStyle = '#4f8a7a'; rr(c, x, 70, 18, 52, 8); c.fill(); c.fillStyle = '#8fc4b3'; rr(c, x, 44, 18, 40, 8); c.fill(); });
     });
+    const spool = (full) => (c) => {
+      c.fillStyle = 'rgba(70,30,10,0.22)'; c.beginPath(); c.ellipse(63, 119, 36, 11, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#8a532d'; c.beginPath(); c.ellipse(60, 114, 31, 11, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#c98a57'; c.beginPath(); c.ellipse(60, 110, 31, 11, 0, 0, Math.PI * 2); c.fill();
+      if (full) {
+        c.fillStyle = lin(c, 36, 0, 84, 0, [[0, '#b83a34'], [0.45, '#ee6a5e'], [1, '#a8302d']]); rr(c, 37, 76, 46, 36, 10); c.fill();
+        c.strokeStyle = 'rgba(120,25,20,0.5)'; c.lineWidth = 2; for (let y = 82; y < 110; y += 6) { c.beginPath(); c.moveTo(38, y); c.quadraticCurveTo(60, y + 5, 82, y - 1); c.stroke(); }
+        c.strokeStyle = 'rgba(255,220,210,0.4)'; c.lineWidth = 1.5; for (let y = 85; y < 110; y += 6) { c.beginPath(); c.moveTo(40, y); c.quadraticCurveTo(60, y + 5, 80, y - 1); c.stroke(); }
+      } else { c.fillStyle = lin(c, 46, 0, 74, 0, [[0, '#d2b182'], [0.5, '#f1dcb6'], [1, '#c4a070']]); c.fillRect(47, 76, 26, 34); }
+      c.fillStyle = '#9a5f37'; c.beginPath(); c.ellipse(60, 79, 31, 11, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#d9a566'; c.beginPath(); c.ellipse(60, 75, 31, 11, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(255,240,210,0.6)'; c.lineWidth = 2; c.beginPath(); c.ellipse(60, 75, 25, 8, 0, Math.PI * 1.05, Math.PI * 1.75); c.stroke();
+      c.fillStyle = '#7c4a28'; c.beginPath(); c.ellipse(60, 75, 8, 3.2, 0, 0, Math.PI * 2); c.fill();
+      // scissors mark : this is where the yarn gets cut
+      if (!full) { c.strokeStyle = '#e0703a'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(88, 52); c.lineTo(102, 66); c.moveTo(102, 52); c.lineTo(88, 66); c.stroke(); c.fillStyle = '#fff6ea'; [[86, 50], [104, 50]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 4.5, 0, Math.PI * 2); c.fill(); c.stroke(); }); }
+    };
+    this.tex('t_spool', 120, 160, spool(false)); this.tex('t_spool_full', 120, 160, spool(true));
     T('t_duck', (c) => {
       // wooden pull-along duck : plank, 4 wheels, a ring at the front for the yarn
       c.fillStyle = '#7c4a28'; rr(c, 26, 98, 70, 14, 5); c.fill();
@@ -1151,13 +1177,55 @@ class Base extends Phaser.Scene {
     const tailG = this.add.graphics(), legsB = this.add.graphics(), legsF = this.add.graphics();
     const body = this.img(-6, -40, 'catw_body_' + fur);
     const head = this.buildHead(true, 0.6, o); head.setPosition(40, -70);
-    flip.add([tailG, legsB, body, legsF, head]);
+    const vg = this.add.graphics().setVisible(false), tg2 = this.add.graphics().setVisible(false), bh = this.add.graphics().setVisible(false);
+    flip.add([tailG, legsB, body, legsF, vg, tg2, head, bh]);
     root.add([shadow, flip]);
     const P = B;
     const pal = { base: hex(P.base), dark: hex(P.dark), cream: hex(P.pattern === 'points' ? '#7a5848' : P.patches ? '#ffffff' : (P.darkFace ? '#4d4553' : P.cream)) };
     const rig = { root, flip, body, head, tailG, legsB, legsF, shadow, pal, B, phase: 0, moving: 0, dir: 1, tail: { speed: 2.2, amp: 5 } };
-    rig.face = (dir) => { rig.dir = dir; flip.scaleX = dir; };
+    rig.view = 'side';
+    rig.face = (dir) => { rig.dir = dir; if (rig.view === 'side') flip.scaleX = dir; };
+    // 'side' (profile), 'front' (walking towards us), 'back' (walking away)
+    rig.setView = (v) => {
+      if (rig.view === v) return; rig.view = v; const side = v === 'side';
+      body.setVisible(side); legsB.setVisible(side); legsF.setVisible(side); vg.setVisible(!side); tg2.setVisible(v === 'back'); bh.setVisible(v === 'back'); head.setVisible(v !== 'back');
+      head.x = side ? 40 : 0; flip.scaleX = side ? rig.dir : 1; vg.clear(); tg2.clear(); bh.clear(); tailG.clear(); legsB.clear(); legsF.clear();
+    };
+    const drawFB = (t, dt) => {
+      const mv = rig.moving, ph = rig.phase, back = rig.view === 'back', bob = Math.abs(Math.sin(ph)) * 3 * mv, breathe = Save.reduce ? 0 : Math.sin(t * 2.4) * 0.8 * (1 - mv);
+      const sw = Save.reduce ? 0 : Math.sin(t * (mv ? 7 : rig.tail.speed)) * (mv ? 7 : rig.tail.amp);
+      const stripe = B.stripe ? hex(B.stripe) : null;
+      vg.clear(); tg2.clear(); bh.clear(); tailG.clear();
+      const paw = (x, a, col, w = 15) => { const lift = Math.max(0, Math.cos(a)) * 5 * mv; vg.fillStyle(col, 1); vg.fillEllipse(x, -5 - lift, w, 10); };
+      const by = -36 - bob + breathe;
+      if (!back) {
+        // tail curls up behind, to the side
+        const pts = new Phaser.Curves.Spline([[18, -30], [36, -40], [42, -62], [34 + sw * 0.5, -82], [24 + sw, -88]].map(([x, y]) => new Phaser.Math.Vector2(x, y))).getPoints(16);
+        this.drawTailPts(tailG, pts, B, 0.72);
+        paw(-21, ph + Math.PI, pal.dark, 14); paw(21, ph, pal.dark, 14);
+        vg.fillStyle(pal.base, 1); vg.fillEllipse(0, by, 56, 58);
+        vg.fillStyle(pal.cream, 1); vg.fillEllipse(0, by + 8, 30, 36);
+        paw(-12, ph, pal.cream); paw(12, ph + Math.PI, pal.cream);
+        head.y = -72 - Math.abs(Math.sin(ph + 0.4)) * 3 * mv;
+      } else {
+        paw(-16, ph, pal.cream); paw(16, ph + Math.PI, pal.cream);
+        vg.fillStyle(pal.dark, 1); vg.fillEllipse(0, by + 2, 60, 60);
+        vg.fillStyle(pal.base, 1); vg.fillEllipse(0, by, 58, 58);
+        if (stripe) { vg.lineStyle(4, stripe, 0.9); [-12, -2, 8].forEach((dy, i) => { const w = 15 - Math.abs(i - 1) * 3; vg.beginPath(); vg.moveTo(-w, by + dy + 3); vg.lineTo(0, by + dy); vg.lineTo(w, by + dy + 3); vg.strokePath(); }); }
+        // tail on top, rising from the rump
+        const pts = new Phaser.Curves.Spline([[0, -12], [4, -30], [-4 + sw * 0.3, -50], [6 + sw * 0.7, -66], [2 + sw, -78]].map(([x, y]) => new Phaser.Math.Vector2(x, y))).getPoints(16);
+        this.drawTailPts(tg2, pts, B, 0.72);
+        // back of the head : no face, just ears
+        const hy = -74 - Math.abs(Math.sin(ph + 0.4)) * 3 * mv;
+        const ear = (s) => { if (B.ear === 'fold') { bh.fillStyle(pal.dark, 1); bh.fillEllipse(s * 24, hy - 20, 20, 12); } else { bh.fillStyle(pal.dark, 1); bh.fillTriangle(s * 30, hy - 8, s * 27, hy - 42, s * 6, hy - 22); bh.fillStyle(pal.base, 1); bh.fillTriangle(s * 27, hy - 10, s * 25, hy - 36, s * 9, hy - 22); } };
+        ear(-1); ear(1);
+        bh.fillStyle(pal.base, 1); bh.fillEllipse(0, hy, 66, 56);
+        if (stripe) { bh.lineStyle(4, stripe, 0.9); [-9, 0, 9].forEach((x, i) => { bh.beginPath(); bh.moveTo(x, hy - 26 + Math.abs(i - 1) * 3); bh.lineTo(x * 0.8, hy - 12); bh.strokePath(); }); }
+      }
+      head.update(dt || 0.016);
+    };
     rig.draw = (t, dt) => {
+      if (rig.view !== 'side') return drawFB(t, dt);
       const mv = rig.moving, ph = rig.phase;
       const leg = (g, x, a, col) => { const fx = x + Math.sin(a) * 9 * mv; const lift = Math.max(0, Math.cos(a)) * 5 * mv; g.lineStyle(11, col, 1); g.beginPath(); g.moveTo(x, -22); g.lineTo(fx, -4 - lift); g.strokePath(); g.fillStyle(pal.cream, 1); g.fillEllipse(fx + 2, -3 - lift, 15, 9); };
       legsB.clear(); legsF.clear();
@@ -1655,7 +1723,7 @@ class Home extends Base {
   }
   playLevel(n) {
     if (PLAYABLE[n]) { Sound.purr(false); this.goScene('level', 'Le Salon', `Niveau ${n}`, { n }); }
-    else this.curtainDown('Le Salon', `Niveau ${n}`, 'Ce niveau arrive bientôt dans la démo.\nLes niveaux 1 à 8 sont jouables !');
+    else this.curtainDown('Le Salon', `Niveau ${n}`, 'Ce niveau arrive bientôt dans la démo.\nLes niveaux 1 à 11 sont jouables !');
   }
 
   // ====================================================== MAISON (pièces + niveaux + décoration)
@@ -1679,7 +1747,7 @@ class Home extends Base {
       if (tab === 0) this.buildLevelPath(S, y0 + 250);
       else this.buildDecor(S, y0 + 210);
     };
-    this.openPanel('Maison', 1180, build);
+    this.openPanel('Maison', 1340, build);
     this.houseBuild = build;
   }
 
@@ -1693,7 +1761,7 @@ class Home extends Base {
     if (doneUpTo > 0) { path.lineStyle(10, 0xe2524a, 1); path.beginPath(); path.moveTo(pts[0].x, pts[0].y); pts.slice(0, doneUpTo + 1).forEach(p => path.lineTo(p.x, p.y)); path.strokePath(); }
     for (let n = 1; n <= NLEVELS; n++) {
       const p = pos[n - 1]; const c = this.add.container(p.x, p.y); S.add(c);
-      const stars = Save.levels[n] || 0; const state = stars ? 'done' : n === cur ? 'current' : 'locked'; const challenge = n % 4 === 0;
+      const stars = Save.levels[n] || 0; const state = stars ? 'done' : n === cur ? 'current' : 'locked'; const challenge = n === 4 || n === 8 || n === 11;
       if (state !== 'locked') c.add(this.img(0, 0, challenge ? 'ball_mustard' : 'ball_red').setScale(state === 'current' ? 0.88 : 0.72));
       else { const g = this.add.graphics(); g.fillStyle(0xf0e0cc, 1); g.fillCircle(0, 0, 40); g.lineStyle(3, 0xd9b99a, 1); g.strokeCircle(0, 0, 40); if (challenge) { g.lineStyle(4, 0xf0b43c, 0.9); g.strokeCircle(0, 0, 46); } c.add(g); c.add(this.img(0, 0, 'ic_lock').setScale(0.55)); }
       if (state !== 'locked') c.add(this.txt(0, 0, String(n), 34, { fontStyle: '700', color: '#fff6ea', stroke: '#7a3518', strokeThickness: 6 }).setOrigin(0.5));
@@ -2083,9 +2151,16 @@ const LEVELS = {
        map: LV(['. . b . O .', 'K . . P O .', '. . . O . .', 'O M O . . .', '. . . . O .', '. B . b . S']) },
   8: { title: 'Deux canards', decor: 2, light: 'soir', budget: 16, keep: 3, rules: ['push', 'stars'],
        map: LV(['. . K . . .', '. . O . O P', '. . M . O .', 'C O O M . .', 'B b . . . L', '. b . . S .']) },
+  // R = spool : walking over it cuts the yarn, the old trail is wound away and can be crossed again (once per spool)
+  9: { title: 'La bobine', light: 'aprem', decor: 1, teach: true, budget: 15, keep: 3, rules: ['spool', 'stars'],
+       map: LV(['R . O O .', 'b . . . K', 'B O P b .', '. . . . O', '. . C S .']) },
+  10: { title: 'Coupe et recroise', light: 'soir', decor: 0, budget: 12, keep: 3, rules: ['spool', 'stars'],
+       map: LV(['K . O B . .', '. C R b . C', '. . . . . B', '. y P . . C', '. . . P C .', '. b . S . .']) },
+  11: { title: 'Le grand mélange', light: 'matin', decor: 2, budget: 12, keep: 3, rules: ['spool', 'stars'],
+       map: LV(['K B O R . .', '. . b . B y', '. . . . b .', '. O . M O .', '. O O . C C', '. O . S . .']) },
 };
 const REFILL = 5;
-const FREE_CH = 'SKby.';
+const FREE_CH = 'SKby.R';
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const BTN_KEYS = ['red', 'blue', 'yellow'];
 const LIGHT_NAMES = { matin: 'Le matin', aprem: 'L\'après-midi', soir: 'Le soir' };
@@ -2126,7 +2201,7 @@ class Level extends Base {
     this.busy = false; this.queue = []; this.won = false; this.hintMarks = []; this.saidCross = false; this.tagFaded = false; this.yarnKey = null;
     this.tut = null; this.tutHand = null; this.sayTimer = null; this.drag = null; this.deadSaid = false; this.sleeper = null;
     this.locked = true; this.holdEv = null; this.holdUsed = false; this.fastBack = false; this.replayArmed = null; this.lastRem = null; this.idleT = 0; this.lookIn = 1.5; this.yawned = false; this.moodTimer = null; this.rolled = 0; this.lastSec = -1;
-    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.pushes = {};
+    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.pushes = {}; this.spools = {}; this.cuts = []; this.cutSaid = false;
     for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
       const ch = this.grid[r][c];
       if (ch === 'S') this.start = [c, r]; if (ch === 'K') this.goal = [c, r];
@@ -2271,6 +2346,7 @@ class Level extends Base {
       rewind: 'Coincé ? Reviens sur tes pas : le fil s\'enroule. Garde le doigt sur Annuler pour reculer vite.',
       stars: `Étoiles : le panier, ${this.nb > 1 ? `les ${this.nb} boutons` : 'le bouton'}, et garder ${L.keep} laines.`,
       refill: `Les pelotes jaunes s'ajoutent à la tienne : +${REFILL} laines !`,
+      spool: 'Passe sur la bobine : elle coupe ton fil et range l\'ancien. Tu peux alors le recroiser !',
       push: 'Fonce dans le canard pour le pousser d\'une case. Il ne roule pas sur ton fil !',
     };
     this.card(S, 44, y - rh / 2 + 4, W - 88, rh - 8, 0xf7e6d1, 30);
@@ -2300,6 +2376,13 @@ class Level extends Base {
       const xs = [92, 144, 196]; const icons = ['t_basket_back', 'btn_sewing_red', 'ball_red'];
       xs.forEach((x, i) => { S.add(this.img(x, y - 22 * s, icons[i]).setScale(i === 0 ? 0.32 * s : i === 1 ? 0.62 * s : 0.3 * s)); S.add(this.img(x, y + 30 * s, 'ic_star').setScale(0.34 * s)); });
     }
+    if (key === 'spool') {
+      const g = this.add.graphics(); S.add(g);
+      g.lineStyle(5, 0xe2524a, 0.3); g.beginPath(); g.moveTo(70, y + 26 * s); g.lineTo(112, y + 26 * s); g.strokePath();
+      S.add(this.img(140, y + 22 * s, 't_spool_full').setOrigin(0.5, 0.62).setScale(0.6 * s));
+      yarnStroke(g, [{ x: 162, y: y + 8 * s }, { x: 190, y: y + 8 * s }, { x: 212, y: y - 14 * s }], 5);
+      S.add(this.img(212, y - 18 * s, 'ball_red').setScale(0.2 * s));
+    }
     if (key === 'push') {
       const h = this.buildHead(true, 0.3 * s); h.setPosition(84, y); S.add(h);
       const a = this.add.graphics(); a.fillStyle(0xe0703a, 1); a.fillTriangle(132, y - 9, 132, y + 9, 146, y); a.fillRect(116, y - 3, 17, 6); S.add(a);
@@ -2315,7 +2398,7 @@ class Level extends Base {
   rules(first) {
     if (this.panel) return;
     if (this.transit) { this.time.delayedCall(300, () => this.rules(first)); return; }
-    const keys = first ? this.L.rules : ['move', 'cross', 'budget', 'rewind', ...(Object.keys(this.refills).length ? ['refill'] : []), ...(this.toys.length ? ['push'] : []), 'stars'];
+    const keys = first ? this.L.rules : ['move', 'cross', 'budget', 'rewind', ...(Object.keys(this.refills).length ? ['refill'] : []), ...(this.toys.length ? ['push'] : []), ...(Object.keys(this.spools).length ? ['spool'] : []), 'stars'];
     const rh = keys.length > 4 ? 140 : 170;
     const hgt = Math.min(1300, 330 + keys.length * rh + (first ? 40 : 0));
     const build = (S, y0) => {
@@ -2343,6 +2426,8 @@ class Level extends Base {
       const ch = this.grid[r][c]; const p = this.tc(c, r); const sy = this.front(c, r);
       const add = (o, dy = 0) => { o.sortY = sy + dy; this.objs.add(o); return o; };
       const furn = { L: 't_lamp', B: 't_books', O: 't_stool', T: 't_chest', C: 't_chair' }[ch];
+      const so = { matin: [-9, 6], aprem: [8, 5], soir: [0, 7] }[this.L.light] || [0, 6];
+      if (furn || ch === 'P') { const cs = this.add.graphics(); cs.fillStyle(0x3a1a08, this.L.light === 'soir' ? 0.1 : 0.14); cs.fillEllipse(0, 0, 104 * k, 30 * k); cs.setPosition(p.x + so[0] * 1.5 * k, p.y + (14 + so[1]) * k); cs.sortY = sy - 0.7; this.objs.add(cs); }
       if (furn) add(this.img(p.x, p.y, furn).setOrigin(60 / 120, 112 / 160).setScale(k));
       if (ch === 'P') { const pl = add(this.img(p.x, p.y + 14 * k, 't_plant').setOrigin(0.5, 126 / 160).setScale(k)); this.tweens.add({ targets: pl, angle: { from: -1.6, to: 1.6 }, duration: 1600 + Math.random() * 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); }
       if (ch === 'L') { const gl = add(this.img(p.x + 15 * k, p.y - 40 * k, 'glow').setScale(0.7 * k).setBlendMode(Phaser.BlendModes.ADD), 0.2); this.tweens.add({ targets: gl, alpha: { from: 0.75, to: 1 }, duration: 900, yoyo: true, repeat: -1 }); this.lampGlows.push([p.x + 15 * k, p.y - 30 * k]); }
@@ -2368,6 +2453,7 @@ class Level extends Base {
         const y = this.add.container(p.x, p.y - 2 * k); y.add([this.img(0, 0, 'ball_mustard').setScale(0.4 * k), this.txt(0, 2, '+' + REFILL, 24 * Math.min(1.15, k), { fontStyle: '700', color: '#fff6ea', stroke: '#8a5a10', strokeThickness: 5 }).setOrigin(0.5)]);
         y.sortY = sy; y.baseY = y.y; y.shadow = sh; y.tile = [c, r]; this.objs.add(y); this.refills[c + ',' + r] = y;
       }
+      if (ch === 'R') { const sp = this.img(p.x, p.y + 8 * k, 't_spool').setOrigin(0.5, 100 / 160).setScale(0.8 * k); sp.sortY = sy - 1; this.objs.add(sp); this.spools[c + ',' + r] = sp; }
       if (ch === 'M') {
         const d = add(this.img(p.x, p.y, 't_duck').setOrigin(60 / 120, 112 / 160).setScale(k));
         d.c = c; d.r = r; d.home = [c, r]; this.toys.push(d);
@@ -2382,15 +2468,18 @@ class Level extends Base {
   // the ball rolls in front of the kitten's paws and shrinks as the yarn unrolls
   ballScale() { return (0.2 + 0.26 * Math.min(1, this.remaining / this.L.budget)) * this.G.k; }
   placeBall(snap) {
-    const k = this.G.k, d = this.cat.dir || 1;
-    const x = this.catPos.x + d * 30 * k, y = this.catPos.y + 2 * k;
+    const k = this.G.k, d = this.cat.dir || 1, v = this.cat.view;
+    let x = this.catPos.x + d * 30 * k, y = this.catPos.y + 2 * k, so = 0.1;
+    if (v === 'front') { x = this.catPos.x + 16 * k; y = this.catPos.y + 12 * k; }
+    if (v === 'back') { x = this.catPos.x - 16 * k; y = this.catPos.y - 20 * k; so = -0.1; }
     if (snap) { this.ball.setPosition(x, y).setScale(this.ballScale()); this.ballX = x; }
     else {
-      const dist = Math.hypot(x - this.ball.x, y - this.ball.y);
-      this.rolled += dist; this.ball.rotation += (x >= this.ball.x ? 1 : -1) * dist / (40 * this.ball.scale);
-      this.ball.setPosition(x, y);
+      const nx = this.ball.x + (x - this.ball.x) * 0.4, ny = this.ball.y + (y - this.ball.y) * 0.4;
+      const dist = Math.hypot(nx - this.ball.x, ny - this.ball.y);
+      this.rolled += dist; this.ball.rotation += (nx >= this.ball.x ? 1 : -1) * dist / (40 * this.ball.scale);
+      this.ball.setPosition(nx, ny);
     }
-    this.ball.sortY = this.cat.root.sortY + 0.1;
+    const sy = this.cat.root.sortY + so; if (this.ball.sortY !== sy) { this.ball.sortY = sy; if (!snap) this.objs.sort('sortY'); }
   }
 
   drawClock() {
@@ -2404,7 +2493,9 @@ class Level extends Base {
 
   free(c, r, ignoreToys) { return c >= 0 && r >= 0 && c < this.G.cols && r < this.G.rows && (FREE_CH.includes(this.grid[r][c]) || this.grid[r][c] === 'M') && (ignoreToys || !this.toyAt(c, r)); }
   toyAt(c, r) { return this.toys.find(t => t.c === c && t.r === r); }
-  inPath(c, r) { return this.path.some(([x, y]) => x === c && y === r); }
+  // the live yarn : everything since the last spool cut
+  liveStart() { return this.cuts.length ? this.cuts[this.cuts.length - 1] : 0; }
+  inPath(c, r) { for (let i = this.liveStart(); i < this.path.length; i++) if (this.path[i][0] === c && this.path[i][1] === r) return true; return false; }
   head() { return this.path[this.path.length - 1]; }
 
   drawHighlights() {
@@ -2439,6 +2530,7 @@ class Level extends Base {
     const [hc, hr] = this.head(); const c = hc + dx, r = hr + dy;
     const prev = this.path[this.path.length - 2];
     if (dx !== 0) this.cat.face(dx > 0 ? 1 : -1);
+    this.cat.setView(dx !== 0 ? 'side' : dy > 0 ? 'front' : 'back');
     this.cat.head.lookAt(Math.abs(dx), dy * 0.8);
     if (prev && prev[0] === c && prev[1] === r) return this.rewind();
     const toy = this.toyAt(c, r);
@@ -2497,7 +2589,8 @@ class Level extends Base {
     if (this.path.length < 2) return;
     const [oc, or] = this.path.pop(); this.remaining++;
     const key = oc + ',' + or;
-    if (this.refills[key] && this.refills[key].taken) this.unabsorb(key);
+    if (this.refills[key] && this.refills[key].taken && !this.path.some(([x, y]) => x === oc && y === or)) this.unabsorb(key);
+    if (this.cuts.length && this.cuts[this.cuts.length - 1] === this.path.length) { this.cuts.pop(); const sp = this.spools[key]; if (sp) { sp.used = false; sp.setFrame('t_spool'); } this.yarnKey = null; Sound.pop(340, 0.12, 'sine', 0.08); }
     const pu = this.pushes[this.path.length]; if (pu) { delete this.pushes[this.path.length]; this.moveToy(pu.toy, ...pu.from, true); }
     const [c, r] = this.head();
     this.mode = 'back'; this.moveCat(oc, or, c, r, false);
@@ -2506,7 +2599,7 @@ class Level extends Base {
     this.deadSaid = false;
     if (this.tut === 'stuck') this.tutorial('rewound');
   }
-  undo() { if (this.locked || this.busy || this.won || this.path.length < 2) return; const [hc] = this.head(); const [pc] = this.path[this.path.length - 2]; if (pc !== hc) this.cat.face(pc > hc ? 1 : -1); this.rewind(); }
+  undo() { if (this.locked || this.busy || this.won || this.path.length < 2) return; const [hc] = this.head(); const [hc2, hr] = this.head(); const [pc, pr] = this.path[this.path.length - 2]; if (pc !== hc) this.cat.face(pc > hc ? 1 : -1); this.cat.setView(pc !== hc2 ? 'side' : pr > hr ? 'front' : 'back'); this.rewind(); }
   restart() {
     if (this.locked || this.won || this.busy || this.path.length < 2) return; this.queue = []; this.busy = true; this.clearHint();
     const s = this.tf(...this.start);
@@ -2516,6 +2609,7 @@ class Level extends Base {
     Object.entries(this.buttons).forEach(([k, b]) => { if (b.taken) this.uncollect(k, true); });
     Object.entries(this.refills).forEach(([k, y]) => { if (y.taken) this.unabsorb(k, true); });
     this.path = [this.start]; this.remaining = this.L.budget; this.mode = 'idle'; this.deadSaid = false;
+    this.cuts = []; Object.values(this.spools).forEach(sp => { sp.used = false; sp.setFrame('t_spool'); }); this.cat.setView('side'); this.yarnKey = null;
     Sound.pop(240, 0.3, 'sine', 0.1); buzz(20); this.mood('curious', 900);
     this.cat.moving = 1;
     const from = { x: this.catPos.x, y: this.catPos.y }; const prog = { p: 0 };
@@ -2545,10 +2639,23 @@ class Level extends Base {
     this.tweens.add({ targets: this.ball, scale: this.ballScale(), duration: this.fastBack && !forward ? 90 : 160 });
   }
 
+  // spool : the yarn behind is wound onto it, the trail is free again
+  cutYarn(key) {
+    const sp = this.spools[key]; sp.used = true; this.cuts.push(this.path.length - 1); this.yarnKey = null;
+    // the old trail whips into the spool
+    const old = [this.cuts.length > 1 ? this.tf(...this.path[this.cuts[this.cuts.length - 2]]) : this.anchor, ...this.path.slice(this.cuts.length > 1 ? this.cuts[this.cuts.length - 2] : 0, this.path.length).map(([c, r]) => this.tf(c, r))];
+    const ghost = this.add.graphics(); this.world.addAt(ghost, this.world.getIndex(this.yarnG)); const pr = { p: 0 };
+    const draw = () => { ghost.clear(); const n = Math.max(2, Math.ceil(old.length * (1 - pr.p))); const pts = old.slice(old.length - n); if (pts.length > 1) { ghost.setAlpha(1 - pr.p * 0.5); yarnStroke(ghost, pts, Math.round(9 * Math.min(1.25, this.G.k))); } };
+    draw(); this.tweens.add({ targets: pr, p: 1, duration: Save.reduce ? 1 : 420, ease: 'Cubic.easeIn', onUpdate: draw, onComplete: () => { ghost.destroy(); sp.setFrame('t_spool_full'); if (!Save.reduce) this.tweens.add({ targets: sp, scaleX: { from: sp.scaleX * 1.25, to: sp.scaleX }, scaleY: { from: sp.scaleY * 0.8, to: sp.scaleY }, duration: 300, ease: 'Back.easeOut' }); } });
+    Sound.pop(1200, 0.05, 'square', 0.05); setTimeout(() => Sound.pop(520, 0.3, 'triangle', 0.1), 90); buzz(18); this.mood('play', 700);
+    this.floatText(sp.x, sp.y - 50 * this.G.k, 'Coupé !', '#4f8a7a');
+    if (!this.cutSaid) { this.cutSaid = true; this.say('Coupé ! L\'ancien fil est rangé : tu peux repasser dessus.', 3600); }
+  }
   arrive(c, r, forward) {
     const key = c + ',' + r;
     if (forward && this.buttons[key] && !this.buttons[key].taken) this.collect(key);
     if (forward && this.refills[key] && !this.refills[key].taken) this.absorb(key);
+    if (forward && this.spools[key] && !this.spools[key].used) this.cutYarn(key);
     if (!forward) Object.entries(this.buttons).forEach(([k, b]) => { if (b.taken && !this.path.some(([x, y]) => x + ',' + y === k)) this.uncollect(k); });
     if (forward && c === this.goal[0] && r === this.goal[1]) { this.win(); return; }
     if (forward && this.remaining === 0) { this.mood('sad'); this.say('Plus de laine ! Reviens sur tes pas pour l\'enrouler.', 3000); this.pulseUndo(); return; }
@@ -2577,11 +2684,11 @@ class Level extends Base {
     return { ok: g !== undefined, far: g !== undefined && g > this.remaining + bonus };
   }
   checkDeadEnd() {
-    if (this.toys.length) {
+    if (this.toys.length || Object.keys(this.spools).length) {
       if (this.solveToys()) { this.deadSaid = false; return; }
       if (this.deadSaid) return; this.deadSaid = true;
       this.mood('annoyed', 900); this.emote('?');
-      this.say(Object.keys(this.pushes).length ? 'Impasse ! Annule pour remettre le canard en place.' : 'Impasse : par ici, le canard finirait coincé. Reviens en arrière.', 3400); this.pulseUndo(); return;
+      this.say(!this.toys.length ? 'Impasse ! Reviens sur tes pas.' : Object.keys(this.pushes).length ? 'Impasse ! Annule pour remettre le canard en place.' : 'Impasse : par ici, le canard finirait coincé. Reviens en arrière.', 3400); this.pulseUndo(); return;
     }
     const R = this.reach();
     if (R.ok && !R.far) { this.deadSaid = false; return; }
@@ -2653,11 +2760,12 @@ class Level extends Base {
 
   // ---------- yarn on the floor : from the cushion, along the path, to the ball
   drawYarnPath() {
-    const key = this.path.length + ':' + Math.round(this.catPos.x) + ',' + Math.round(this.catPos.y) + ':' + this.mode + ':' + Math.round(this.ball.x) + ',' + Math.round(this.ball.y);
+    const key = this.cuts.length + '/' + this.path.length + ':' + Math.round(this.catPos.x) + ',' + Math.round(this.catPos.y) + ':' + this.mode + ':' + Math.round(this.ball.x) + ',' + Math.round(this.ball.y);
     if (key === this.yarnKey) return; this.yarnKey = key;
     const g = this.yarnG; g.clear();
-    const pts = [this.anchor];
-    const centers = this.path.map(([c, r]) => this.tf(c, r));
+    const ls = this.liveStart(); const sp0 = ls ? this.tf(...this.path[ls]) : null;
+    const pts = [ls ? { x: sp0.x, y: sp0.y - 14 * this.G.k } : this.anchor];
+    const centers = this.path.slice(ls).map(([c, r]) => this.tf(c, r));
     (this.mode === 'fwd' ? centers.slice(0, -1) : centers).forEach(p => pts.push(p));
     const lastP = pts[pts.length - 1]; if (Math.hypot(lastP.x - this.catPos.x, lastP.y - this.catPos.y) > 0.5) pts.push({ x: this.catPos.x, y: this.catPos.y });
     pts.push({ x: this.ball.x, y: this.ball.y + 8 * this.G.k });
@@ -2784,53 +2892,13 @@ class Level extends Base {
 
   // ---------- hint : best route from the current state (buttons first, then laine kept)
   solveToys() {
-    const btn = new Set(Object.keys(this.buttons)), ys = new Set(Object.keys(this.refills).filter(k => !this.refills[k].taken));
-    const onPath = new Set(this.path.map(([c, r]) => c + ',' + r)), toys = new Set(this.toys.map(t => t.c + ',' + t.r));
-    const got0 = [...onPath].filter(k => btn.has(k)).length;
-    let best = null, bestScore = -1, nodes = 0; const route = [];
-    const dfs = (c, r, rem, got) => {
-      if (++nodes > 250000) return;
-      for (const [dx, dy] of DIRS) {
-        const nc = c + dx, nr = r + dy, k = nc + ',' + nr;
-        if (rem <= 0 || onPath.has(k) || !this.free(nc, nr, true)) continue;
-        let moved = null;
-        if (toys.has(k)) { const ux = nc + dx, uy = nr + dy, uk = ux + ',' + uy; if (!this.duckCan(ux, uy) || toys.has(uk) || onPath.has(uk)) continue; toys.delete(k); toys.add(uk); moved = [k, uk]; }
-        onPath.add(k); route.push([nc, nr]);
-        const g = got + (btn.has(k) ? 1 : 0), rm = rem - 1 + (ys.has(k) ? REFILL : 0);
-        if (nc === this.goal[0] && nr === this.goal[1]) { const sc = g * 1000 + rm * 10 - route.length * 0.01; if (sc > bestScore) { bestScore = sc; best = route.slice(); } }
-        else dfs(nc, nr, rm, g);
-        route.pop(); onPath.delete(k);
-        if (moved) { toys.delete(moved[1]); toys.add(moved[0]); }
-      }
-    };
-    const [hc, hr] = this.head(); dfs(hc, hr, this.remaining, got0);
-    return best;
+    const ks = (o, f) => Object.keys(o).filter(k => f(o[k])), ls = this.liveStart();
+    const justCut = this.cuts.length && ls === this.path.length - 1 && this.path.length > 1;
+    const st = { pos: this.head(), live: this.path.slice(ls).map(([c, r]) => c + ',' + r), toys: this.toys.map(t => t.c + ',' + t.r), takenB: ks(this.buttons, b => b.taken), takenY: ks(this.refills, y => y.taken), usedR: ks(this.spools, s => s.used), ban: justCut ? this.path[this.path.length - 2].join(',') : null };
+    const res = solveGrid(this.grid, this.remaining, 250000, st);
+    return res.best ? res.best.route : null;
   }
-  solveFrom() {
-    if (this.toys.length) return this.solveToys();
-    const seen = new Set(this.path.map(([c, r]) => c + ',' + r));
-    const takenY = new Set(Object.keys(this.refills).filter(k => this.refills[k].taken));
-    const need = new Set(Object.keys(this.buttons).filter(k => !this.buttons[k].taken));
-    let best = null, bestScore = -1, nodes = 0;
-    const dfs = (c, r, route, got, rem) => {
-      if (++nodes > 300000) return;
-      if (c === this.goal[0] && r === this.goal[1]) {
-        const score = got * 1000 + rem * 10 - route.length * 0.01;
-        if (score > bestScore) { bestScore = score; best = route.slice(); }
-        return;
-      }
-      if (rem <= 0) return;
-      for (const [dx, dy] of DIRS) {
-        const nc = c + dx, nr = r + dy, k = nc + ',' + nr;
-        if (!this.free(nc, nr) || seen.has(k)) continue;
-        seen.add(k); route.push([nc, nr]);
-        dfs(nc, nr, route, got + (need.has(k) ? 1 : 0), rem - 1 + (k in this.refills && !takenY.has(k) ? REFILL : 0));
-        route.pop(); seen.delete(k);
-      }
-    };
-    const [hc, hr] = this.head(); dfs(hc, hr, [], 0, this.remaining);
-    return best;
-  }
+  solveFrom() { return this.solveToys(); }
   showHintPath() {
     if (this.won || this.locked) return; this.clearHint();
     if (this.hintsLeft <= 0) { this.say('Plus d\'indices pour ce niveau. Tu peux y arriver !', 2400); this.tweens.add({ targets: this.hintBtn, x: this.hintBtn.x + 6, duration: 50, yoyo: true, repeat: 3 }); return; }
@@ -2860,7 +2928,7 @@ class Level extends Base {
     this.tweens.add({ targets: [this.botC, this.sayBox, this.ballTxt], alpha: 0, duration: 250 });
     this.tweens.killTweensOf([this.goalRing, this.goalArrow]); this.goalRing.setVisible(false); this.goalTag.setVisible(false); this.goalArrow.setVisible(false);
     this.cat.root.sortY = this.basketBack.sortY + 0.3; this.ball.sortY = this.basketFront.sortY + 0.1; this.objs.sort('sortY');
-    this.cat.head.setMood('happy');
+    this.cat.setView('front'); this.cat.head.setMood('happy');
     Sound.fanfare(); buzz(40);
     this.tweens.add({ targets: this.cat.root, y: p.y - 40 * k, duration: 220, ease: 'Quad.easeOut', onComplete: () => this.tweens.add({ targets: this.cat.root, y: p.y + 10 * k, duration: 200, ease: 'Quad.easeIn', onComplete: () => this.curlUp(p) }) });
     // the ball rolls to rest next to the basket
@@ -2962,15 +3030,17 @@ class Level extends Base {
       this.cat.draw(this.t, dt);
       // the shadow stays on the floor while the kitten hops, and shifts with the light
       const lift = (this.catPos.y - this.cat.root.y) / this.catS, sh = this.cat.shadow;
-      sh.setPosition(this.shadowOff[0] * (this.cat.dir || 1) * (this.cat.flip.scaleX < 0 ? -1 : 1), lift + 2 + this.shadowOff[1]); sh.setScale(Math.max(0.6, 1 - lift * 0.01), 1); sh.setAlpha(Math.max(0.4, 1 - lift * 0.012));
+      sh.setPosition(this.shadowOff[0] * (this.cat.dir || 1) * (this.cat.flip.scaleX < 0 ? -1 : 1), lift + 2 + this.shadowOff[1]); sh.setScale(Math.max(0.6, 1 - lift * 0.01) * (this.cat.view === 'side' ? 1 : 0.72), 1); sh.setAlpha(Math.max(0.4, 1 - lift * 0.012));
     }
+    if (!this.won) this.placeBall(false);
+    if (this.cat.view === 'back' && !this.busy && !this.queue.length && (this.turnT = (this.turnT || 0) + dt) > 0.8) { this.cat.setView('front'); this.turnT = 0; } else if (this.busy) this.turnT = 0;
     this.toys.forEach(t => { if (t.shadowG) { t.shadowG.setPosition(t.x + this.shadowOff[0] * this.G.k, t.y + (10 + this.shadowOff[1]) * this.G.k); } });
     if (this.sleeper && this.sleeper.root.scene) { this.sleeper.drawTail(this.t); this.sleeper.head.update(dt); }
     this.sayHead.update(dt);
     this.drawYarnPath();
     if (this.ballTxt && !this.won) {
       const r = this.ball.displayHeight / 2;
-      this.ballTxt.setPosition(this.ball.x, this.ball.y + r + 12 * this.G.k).setVisible(this.ball.scale > 0.05);
+      this.ballTxt.setPosition(this.ball.x - (this.cat.view === 'back' ? r + 16 * this.G.k : 0), this.ball.y + (this.cat.view === 'back' ? 0 : r + 12 * this.G.k)).setVisible(this.ball.scale > 0.05);
       if (this.lastRem !== this.remaining) {
         if (this.lastRem !== null && !Save.reduce) this.tweens.add({ targets: this.ballTxt, scale: { from: 1.35, to: 1 }, duration: 220, ease: 'Back.easeOut' });
         this.lastRem = this.remaining; this.ballTxt.setText(String(this.remaining)).setStroke(this.remaining <= 3 ? '#d9483f' : '#7a3518', 6);
