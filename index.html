@@ -16,6 +16,7 @@
       linear-gradient(180deg, #fde9d2 0%, #f9d3ab 50%, #efb07f 100%); }
   #game[data-light="matin"] { background: radial-gradient(circle at 80% 8%, rgba(255,240,200,0.6), rgba(255,240,200,0) 30%), linear-gradient(180deg, #fff0da 0%, #fbdcb4 50%, #f1b98a 100%); }
   #game[data-light="soir"] { background: radial-gradient(circle at 50% 40%, rgba(255,190,120,0.25), rgba(255,190,120,0) 45%), linear-gradient(180deg, #f3d6cf 0%, #dcb0b4 45%, #a97f98 100%); }
+  #game::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.4; background-image: radial-gradient(rgba(255,255,255,0.55) 1.6px, transparent 2.4px), radial-gradient(rgba(164,80,42,0.10) 1.6px, transparent 2.4px); background-size: 30px 30px, 30px 30px; background-position: 0 0, 15px 15px; }
   #vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 60% at 50% 45%, rgba(120,50,20,0) 55%, rgba(120,50,20,0.26) 100%); }
   #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-family: 'Fredoka', system-ui, sans-serif; color: #a4502a; font-size: 20px; }
   canvas { touch-action: none; }
@@ -771,7 +772,8 @@ class Boot extends Phaser.Scene {
 
   // ---------- top-down level art : tile = TS px, tile centre of each furniture texture at (60, 112)
   makeTopDown() {
-    const T = (key, fn) => this.tex(key, 120, 160, (c) => { c.fillStyle = 'rgba(70,30,10,0.22)'; c.beginPath(); c.ellipse(62, 122, 40, 13, 0, 0, Math.PI * 2); c.fill(); fn(c); });
+    this.tex('soft_shadow', 160, 80, (c) => { c.save(); c.translate(80, 40); c.scale(1, 0.5); c.fillStyle = rad(c, 0, 0, 0, 78, [[0, 'rgba(58,26,8,0.62)'], [0.55, 'rgba(58,26,8,0.34)'], [1, 'rgba(58,26,8,0)']]); c.beginPath(); c.arc(0, 0, 78, 0, Math.PI * 2); c.fill(); c.restore(); });
+    const T = (key, fn) => this.tex(key, 120, 160, (c) => { fn(c); });
     T('t_plant', (c) => {
       const leaf = (a, l, w, col) => { c.save(); c.translate(60, 84); c.rotate(a); c.fillStyle = col; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(w, -l * 0.5, 0, -l); c.quadraticCurveTo(-w, -l * 0.5, 0, 0); c.fill(); c.strokeStyle = 'rgba(255,255,255,0.3)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, -3); c.lineTo(0, -l + 6); c.stroke(); c.restore(); };
       [[-1.9, 44, 12, '#558f4c'], [1.9, 44, 12, '#558f4c'], [-1.25, 56, 14, '#5f9d55'], [1.25, 56, 14, '#5f9d55'], [-0.6, 66, 15, '#6fae64'], [0.6, 64, 15, '#6fae64'], [0.05, 74, 15, '#7fbf78']].forEach(([a, l, w, col]) => leaf(a, l, w, col));
@@ -2105,29 +2107,62 @@ function paintTopDown(c, G, lightKey, decorIdx = 0) {
   c.fillStyle = 'rgba(255,230,200,0.35)'; c.fillRect(x0 - wt, y0 + h, w + wt * 2, 3);
   // floor planks
   c.fillStyle = lin(c, 0, y0, 0, y0 + h, [[0, D.floor[0]], [1, D.floor[1]]]); c.fillRect(x0, y0, w, h);
-  const ph = TS / 2;
+  const ph = TS / 2; let sd = cols * 7 + rows * 13 + decorIdx * 101;
+  const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
   for (let y = y0, k = 0; y < y0 + h; y += ph, k++) {
-    c.fillStyle = 'rgba(110,60,30,0.26)'; c.fillRect(x0, y, w, 2);
-    c.fillStyle = 'rgba(255,225,190,0.18)'; c.fillRect(x0, y + 2, w, 1.5);
-    for (let j = 0; j < 3; j++) { const x = x0 + ((j * 0.31 + k * 0.137) % 1) * w; c.fillStyle = 'rgba(110,60,30,0.22)'; c.fillRect(x, y, 2, ph); }
-    for (let j = 0; j < 2; j++) { const x = x0 + ((j * 0.43 + k * 0.23) % 1) * w; c.fillStyle = 'rgba(110,60,30,0.08)'; c.beginPath(); c.ellipse(x + 26, y + ph / 2, 20, 3.5, 0, 0, Math.PI * 2); c.fill(); }
+    // each board has its own tone, grain and the odd knot
+    const joints = [0, ...[0, 1, 2].map(j => ((j * 0.31 + k * 0.137) % 1) * w).sort((a, b) => a - b), w];
+    for (let j = 0; j < joints.length - 1; j++) {
+      const bx = x0 + joints[j], bw = joints[j + 1] - joints[j]; if (bw < 4) continue; const t = rnd();
+      c.fillStyle = t < 0.5 ? `rgba(255,236,205,${0.03 + t * 0.14})` : `rgba(96,48,20,${(t - 0.5) * 0.16})`; c.fillRect(bx, y, bw, ph);
+      c.strokeStyle = 'rgba(110,60,30,0.07)'; c.lineWidth = 1;
+      for (let g = 0; g < 3; g++) { const gy = y + 6 + rnd() * (ph - 12), wob = (rnd() - 0.5) * 6; c.beginPath(); c.moveTo(bx + 4, gy); c.bezierCurveTo(bx + bw * 0.3, gy + wob, bx + bw * 0.7, gy - wob, bx + bw - 4, gy); c.stroke(); }
+      if (rnd() < 0.22 && bw > 70) { const kx = bx + 24 + rnd() * (bw - 48), ky = y + ph / 2; c.fillStyle = 'rgba(96,48,20,0.16)'; c.beginPath(); c.ellipse(kx, ky, 7, 4, 0, 0, Math.PI * 2); c.fill(); c.strokeStyle = 'rgba(96,48,20,0.12)'; c.beginPath(); c.ellipse(kx, ky, 13, 7, 0, 0, Math.PI * 2); c.stroke(); }
+      c.fillStyle = 'rgba(80,38,14,0.3)'; c.fillRect(bx, y, 2, ph); c.fillStyle = 'rgba(255,232,200,0.16)'; c.fillRect(bx + 2, y, 1.5, ph);
+    }
+    c.fillStyle = 'rgba(80,38,14,0.3)'; c.fillRect(x0, y, w, 2);
+    c.fillStyle = 'rgba(255,232,200,0.2)'; c.fillRect(x0, y + 2, w, 1.5);
   }
   // round rug under the middle of the board (walkable)
-  c.save(); c.globalAlpha = 0.7; c.translate(x0 + w / 2, y0 + h * 0.52); c.scale(1, 0.74);
   const R = Math.min(w, h) * 0.36;
+  c.save(); c.translate(x0 + w / 2, y0 + h * 0.52); c.scale(1, 0.74);
+  c.fillStyle = 'rgba(70,30,10,0.18)'; c.beginPath(); c.arc(4, 9, R * 1.035, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = D.rug[0]; c.lineWidth = 2; c.lineCap = 'round'; c.globalAlpha = 0.9;
+  for (let i = 0; i < 150; i++) { const a = i / 150 * Math.PI * 2, l = 1.022 + (i % 3) * 0.004; c.beginPath(); c.moveTo(Math.cos(a) * R * 0.99, Math.sin(a) * R * 0.99); c.lineTo(Math.cos(a) * R * l, Math.sin(a) * R * l); c.stroke(); }
+  c.globalAlpha = 0.86;
   [1, 0.92, 0.79, 0.72, 0.59, 0.52, 0.39].map((k, i) => [k, D.rug[i]]).forEach(([k, col]) => { c.fillStyle = col; c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.fill(); });
-  c.strokeStyle = 'rgba(255,255,255,0.5)'; c.setLineDash([9, 10]); c.lineWidth = 3; [0.96, 0.76, 0.56].forEach(k => { c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.stroke(); }); c.setLineDash([]);
+  c.globalAlpha = 1;
+  // knitted rows : fine concentric stitches
+  c.strokeStyle = 'rgba(120,60,30,0.10)'; c.lineWidth = 1.5; c.setLineDash([5, 4]);
+  for (let k = 0.08; k < 1; k += 0.045) { c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,0.55)'; c.setLineDash([9, 10]); c.lineWidth = 3; [0.96, 0.76, 0.56].forEach(k => { c.beginPath(); c.arc(0, 0, k * R, 0, Math.PI * 2); c.stroke(); }); c.setLineDash([]);
+  c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.clip();
+  c.fillStyle = rad(c, -R * 0.35, -R * 0.45, 0, R * 1.5, [[0, 'rgba(255,250,235,0.22)'], [0.5, 'rgba(255,250,235,0)'], [1, 'rgba(70,30,10,0.16)']]); c.fillRect(-R, -R, R * 2, R * 2);
   c.restore();
   // tile grid
-  for (let r = 0; r < rows; r++) for (let cc = 0; cc < cols; cc++) if ((cc + r) % 2 === 0) { c.fillStyle = 'rgba(255,255,255,0.07)'; c.fillRect(x0 + cc * TS, y0 + r * TS, TS, TS); }
-  c.strokeStyle = 'rgba(122,53,24,0.15)'; c.lineWidth = 1.5;
-  for (let k = 0; k <= cols; k++) { c.beginPath(); c.moveTo(x0 + k * TS, y0); c.lineTo(x0 + k * TS, y0 + h); c.stroke(); }
-  for (let k = 0; k <= rows; k++) { c.beginPath(); c.moveTo(x0, y0 + k * TS); c.lineTo(x0 + w, y0 + k * TS); c.stroke(); }
+  c.strokeStyle = 'rgba(90,40,15,0.09)'; c.lineWidth = 1.5;
+  for (let k = 1; k < cols; k++) { c.beginPath(); c.moveTo(x0 + k * TS, y0); c.lineTo(x0 + k * TS, y0 + h); c.stroke(); }
+  for (let k = 1; k < rows; k++) { c.beginPath(); c.moveTo(x0, y0 + k * TS); c.lineTo(x0 + w, y0 + k * TS); c.stroke(); }
+  for (let r = 1; r < rows; r++) for (let cc = 1; cc < cols; cc++) { const gx = x0 + cc * TS, gy = y0 + r * TS; c.fillStyle = 'rgba(255,246,230,0.55)'; c.beginPath(); c.arc(gx, gy, 3.2, 0, Math.PI * 2); c.fill(); c.fillStyle = 'rgba(90,40,15,0.25)'; c.beginPath(); c.arc(gx, gy, 1.4, 0, Math.PI * 2); c.fill(); }
   // sun patch from the window
   const wwid = Math.min(170, w * 0.36), wx = Math.max(x0 + 60, Math.min(xr - 60 - wwid, x0 + w * D.win - wwid / 2));
-  if (Lt.sun) {
-    c.fillStyle = lin(c, 0, y0, 0, y0 + h * 0.55, [[0, Lt.sunCol], [1, 'rgba(255,236,190,0)']]);
-    c.beginPath(); c.moveTo(wx + 6, y0); c.lineTo(wx + wwid - 6, y0); c.lineTo(wx + wwid - 60, y0 + h * 0.55); c.lineTo(wx - 90, y0 + h * 0.55); c.closePath(); c.fill();
+  {
+    const moon = !Lt.sun, len = h * (lightKey === 'matin' ? 0.62 : 0.5), sh = lightKey === 'matin' ? -110 : lightKey === 'aprem' ? 70 : -40;
+    const P = (u, t) => ({ x: wx + 4 + (wwid - 8) * u + (sh - 14 + 28 * u) * t, y: y0 + 4 + len * t });
+    const core = moon ? '190,205,255' : '255,238,190', a0 = moon ? 0.16 : 0.5;
+    // soft halo first, then the four panes
+    c.fillStyle = lin(c, 0, y0, 0, y0 + len, [[0, `rgba(${core},${a0 * 0.35})`], [1, `rgba(${core},0)`]]);
+    c.beginPath(); [[-0.12, 0], [1.12, 0], [1.2, 1.1], [-0.2, 1.1]].forEach(([u, t], i) => { const p = P(u, t); i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y); }); c.closePath(); c.fill();
+    [[0.03, 0.47], [0.53, 0.97]].forEach(([u0, u1]) => [[0.05, 0.48], [0.55, 1]].forEach(([t0, t1]) => {
+      c.fillStyle = lin(c, 0, y0 + len * t0, 0, y0 + len * t1, [[0, `rgba(${core},${a0 * (1 - t0 * 0.6)})`], [1, `rgba(${core},${a0 * (1 - t1 * 0.85)})`]]);
+      c.beginPath(); [[u0, t0], [u1, t0], [u1, t1], [u0, t1]].forEach(([u, t], i) => { const p = P(u, t); i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y); }); c.closePath(); c.fill();
+    }));
+  }
+  // the room's own light : bright where the window lands, darker in the corners
+  {
+    const cx = wx + wwid / 2, cy = y0 + h * 0.34, edge = lightKey === 'soir' ? 'rgba(38,28,84,0.3)' : lightKey === 'matin' ? 'rgba(96,40,10,0.2)' : 'rgba(80,34,10,0.2)';
+    c.fillStyle = rad(c, cx, cy, w * 0.15, Math.max(w, h) * 0.95, [[0, lightKey === 'soir' ? 'rgba(160,170,255,0.05)' : 'rgba(255,240,200,0.12)'], [0.45, 'rgba(255,240,200,0)'], [1, edge]]);
+    c.fillRect(x0, y0, w, h);
   }
   // shade along the walls
   c.fillStyle = lin(c, 0, y0, 0, y0 + 50, [[0, 'rgba(90,40,15,0.28)'], [1, 'rgba(90,40,15,0)']]); c.fillRect(x0, y0, w, 50);
@@ -2139,6 +2174,8 @@ function paintTopDown(c, G, lightKey, decorIdx = 0) {
   if (D.wall === 'dots') for (let x = x0 + 14; x < xr; x += 34) for (let yy = wy + 16; yy < y0 - 40; yy += 34) { c.fillStyle = 'rgba(214,120,80,0.16)'; c.beginPath(); c.arc(x + ((Math.round((yy - wy) / 34) % 2) * 17), yy, 4.5, 0, Math.PI * 2); c.fill(); }
   if (D.wall === 'plain') { c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x0 - wt, wy + 50, w + wt * 2, 4); c.fillRect(x0 - wt, wy + 58, w + wt * 2, 2); }
   c.fillStyle = '#d89f78'; c.fillRect(x0 - wt, y0 - 30, w + wt * 2, 30); c.fillStyle = '#fff1df'; c.fillRect(x0 - wt, y0 - 36, w + wt * 2, 7);
+  if (Lt.sun) { c.save(); c.beginPath(); c.rect(x0 - wt, wy, w + wt * 2, wallH); c.clip(); c.fillStyle = rad(c, wx + wwid / 2, wy + 70, 20, 260, [[0, 'rgba(255,244,214,0.5)'], [1, 'rgba(255,244,214,0)']]); c.fillRect(x0 - wt, wy, w + wt * 2, wallH); c.restore(); }
+  c.fillStyle = lin(c, 0, y0 - 70, 0, y0 - 30, [[0, 'rgba(120,60,30,0)'], [1, 'rgba(120,60,30,0.10)']]); c.fillRect(x0 - wt, y0 - 70, w + wt * 2, 40);
   // window + curtains (sky follows the time of day)
   const wTop = wy + 18, wBot = y0 - 48;
   c.fillStyle = '#fff4e6'; rr(c, wx - 10, wTop - 8, wwid + 20, wBot - wTop + 16, 6); c.fill();
@@ -2250,7 +2287,7 @@ class Level extends Base {
     this.busy = false; this.queue = []; this.won = false; this.hintMarks = []; this.saidCross = false; this.tagFaded = false; this.yarnKey = null;
     this.tut = null; this.tutHand = null; this.sayTimer = null; this.drag = null; this.deadSaid = false; this.sleeper = null;
     this.locked = true; this.holdEv = null; this.holdUsed = false; this.fastBack = false; this.replayArmed = null; this.lastRem = null; this.idleT = 0; this.lookIn = 1.5; this.yawned = false; this.moodTimer = null; this.rolled = 0; this.lastSec = -1;
-    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.pushes = {}; this.spools = {}; this.cuts = []; this.cutSaid = false;
+    this.grid = L.map; this.start = null; this.goal = null; this.buttons = {}; this.refills = {}; this.toys = []; this.pushes = {}; this.spools = {}; this.cuts = []; this.cutSaid = false; this.duckShadows = [];
     for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
       const ch = this.grid[r][c];
       if (ch === 'S') this.start = [c, r]; if (ch === 'K') this.goal = [c, r];
@@ -2280,19 +2317,28 @@ class Level extends Base {
     this.backMark = this.img(0, 0, 'ic_undo').setScale(0.42 * Math.min(1.2, k)).setAlpha(0.75).setVisible(false); this.world.add(this.backMark);
     this.objs = this.add.container(0, 0); this.world.add(this.objs);
     this.buildObjects();
-    this.cat = this.buildWalker(); this.catS = 0.64 * k;
+    this.cat = this.buildWalker(); this.catS = 0.72 * k;
     this.cat.root.setScale(this.catS);
     const sp = this.tf(...this.start); this.cat.root.setPosition(sp.x, sp.y); this.cat.root.sortY = this.front(...this.start) + 0.5;
     this.cat.face(1); this.lastDir = [1, 0];
     // light direction : morning sun from the window (left-ish), afternoon from the right, evening soft under the lamp
     this.shadowOff = { matin: [-9, 6], aprem: [8, 5], soir: [0, 7] }[L.light] || [0, 6];
-    this.toys.forEach(t => { const sh = this.add.graphics(); sh.fillStyle(0x3a1a08, L.light === 'soir' ? 0.18 : 0.25); sh.fillEllipse(0, 0, 70 * k, 20 * k); sh.sortY = t.sortY - 0.5; this.objs.add(sh); t.shadowG = sh; });
+    this.toys.forEach((t, i) => { t.shadowG = (this.duckShadows || [])[i]; });
     this.objs.add(this.cat.root);
     this.catPos = { x: sp.x, y: sp.y }; this.mode = 'idle';
     this.placeBall(true); this.objs.sort('sortY');
     const opt = this.solveFrom(); this.optimum = opt ? opt.length : 0; this.hintsLeft = 3;
     // evening : a cool veil over the room, warm pools around lamps
     if (L.light === 'soir') {
+      const wy0 = G.BY - 150 + 14, xa = G.BX - 6, xb = G.BX + G.cols * G.TS + 6, n = Math.max(7, Math.round((xb - xa) / 62));
+      const wire = this.add.graphics(); wire.lineStyle(2, 0x5a3418, 0.7); wire.beginPath(); this.world.add(wire);
+      const cols2 = [0xffd27a, 0xff9c8f, 0xa6e3d0, 0xffe9a8];
+      for (let i = 0; i <= n * 4; i++) { const s = i / (n * 4), x = xa + (xb - xa) * s, y = wy0 + Math.abs(Math.sin(s * Math.PI * (n / 2))) * 12; i ? wire.lineTo(x, y) : wire.moveTo(x, y); }
+      wire.strokePath();
+      for (let i = 0; i < n; i++) { const s = (i + 0.5) / n, x = xa + (xb - xa) * s, y = wy0 + Math.abs(Math.sin(s * Math.PI * (n / 2))) * 12 + 5;
+        const bulb = this.add.graphics(); bulb.fillStyle(cols2[i % 4], 1); bulb.fillCircle(x, y, 5); this.world.add(bulb);
+        const gl = this.img(x, y, 'glow').setScale(0.3).setTint(cols2[i % 4]).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7); this.world.add(gl);
+        if (!Save.reduce) this.tweens.add({ targets: gl, alpha: { from: 0.35, to: 0.9 }, scale: { from: 0.24, to: 0.34 }, duration: 900 + (i * 137) % 700, yoyo: true, repeat: -1, delay: (i * 211) % 900, ease: 'Sine.easeInOut' }); }
       const veil = this.add.graphics(); veil.fillStyle(0x2e2f6e, 0.14); veil.fillRect(0, this.roomTop, W, G.rows * G.TS + 260); this.world.add(veil);
       this.lampGlows.forEach(([x, y]) => { const gl = this.img(x, y, 'glow').setScale(2.6 * k).setAlpha(0.55).setBlendMode(Phaser.BlendModes.ADD); this.world.add(gl); this.tweens.add({ targets: gl, alpha: { from: 0.45, to: 0.62 }, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); });
     }
@@ -2476,7 +2522,7 @@ class Level extends Base {
       const add = (o, dy = 0) => { o.sortY = sy + dy; this.objs.add(o); return o; };
       const furn = { L: 't_lamp', B: 't_books', O: 't_stool', T: 't_chest', C: 't_chair' }[ch];
       const so = { matin: [-9, 6], aprem: [8, 5], soir: [0, 7] }[this.L.light] || [0, 6];
-      if (furn || ch === 'P') { const cs = this.add.graphics(); cs.fillStyle(0x3a1a08, this.L.light === 'soir' ? 0.1 : 0.14); cs.fillEllipse(0, 0, 104 * k, 30 * k); cs.setPosition(p.x + so[0] * 1.5 * k, p.y + (14 + so[1]) * k); cs.sortY = sy - 0.7; this.objs.add(cs); }
+      if (furn || ch === 'P' || ch === 'M') { const tall = 'LPC'.includes(ch) ? 1.25 : 1; const cs = this.img(p.x + so[0] * 1.3 * k * tall, p.y + (12 + so[1] * 0.8) * k, 'soft_shadow').setScale(0.74 * k * tall, 0.7 * k).setAlpha(this.L.light === 'soir' ? 0.6 : 0.85); cs.sortY = sy - 0.7; this.objs.add(cs); if (ch === 'M') this.duckShadows = (this.duckShadows || []).concat([cs]); }
       if (furn) add(this.img(p.x, p.y, furn).setOrigin(60 / 120, 112 / 160).setScale(k));
       if (ch === 'P') { const pl = add(this.img(p.x, p.y + 14 * k, 't_plant').setOrigin(0.5, 126 / 160).setScale(k)); this.tweens.add({ targets: pl, angle: { from: -1.6, to: 1.6 }, duration: 1600 + Math.random() * 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); }
       if (ch === 'L') { const gl = add(this.img(p.x + 15 * k, p.y - 40 * k, 'glow').setScale(0.7 * k).setBlendMode(Phaser.BlendModes.ADD), 0.2); this.tweens.add({ targets: gl, alpha: { from: 0.75, to: 1 }, duration: 900, yoyo: true, repeat: -1 }); this.lampGlows.push([p.x + 15 * k, p.y - 30 * k]); }
@@ -3085,7 +3131,7 @@ class Level extends Base {
     }
     if (!this.won) this.placeBall(false);
     if (this.cat.view === 'back' && !this.busy && !this.queue.length && (this.turnT = (this.turnT || 0) + dt) > 0.8) { this.cat.setView('front'); this.turnT = 0; } else if (this.busy) this.turnT = 0;
-    this.toys.forEach(t => { if (t.shadowG) { t.shadowG.setPosition(t.x + this.shadowOff[0] * this.G.k, t.y + (10 + this.shadowOff[1]) * this.G.k); } });
+    this.toys.forEach(t => { if (t.shadowG) { t.shadowG.setPosition(t.x + this.shadowOff[0] * 1.3 * this.G.k, t.y + (12 + this.shadowOff[1] * 0.8) * this.G.k); t.shadowG.sortY = t.sortY - 0.7; } });
     if (this.sleeper && this.sleeper.root.scene) { this.sleeper.drawTail(this.t); this.sleeper.head.update(dt); }
     this.sayHead.update(dt);
     this.drawYarnPath();
