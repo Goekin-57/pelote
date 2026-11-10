@@ -13,3 +13,6 @@ Le fil ne peut jamais se croiser, chaque case coûte une laine, et on peut reven
 
 Fait avec [Phaser 4](https://phaser.io), en un seul fichier `index.html`.
 Se joue au doigt (glisser case par case) ou au clavier (flèches / ZQSD, Retour arrière pour annuler).
+
+## Crédits
+Sons d'interface : [Interface Sounds](https://kenney.nl/assets/interface-sounds) de Kenney (licence CC0).
